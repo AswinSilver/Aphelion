@@ -7,6 +7,11 @@ locally, including the latter's ASan/UBSan/leak checks. The distinct UCRT64
 x86-64, macOS, and GitHub Linux jobs still need execution. No memory-safety
 proof or exhaustive fuzzing is claimed.
 
+The manual Stage 1 binary packaging workflow is documented in
+[`RELEASE.md`](RELEASE.md). It consumes native artifacts only after these
+build/smoke/dependency gates and creates review-only Actions artifacts; it does
+not create a GitHub Release or publish packages.
+
 ## Native Windows (MSYS2 UCRT64)
 
 Install MSYS2, open its **UCRT64** terminal, update it (reopen if requested),

@@ -217,6 +217,8 @@ commands and the local PIE startup workaround are in `docs/QUICKSTART.md`.
 - [`docs/QUICKSTART.md`](docs/QUICKSTART.md): install, build, run, and troubleshoot.
 - [`docs/RELIABILITY.md`](docs/RELIABILITY.md): semantics, limits, and safety scope.
 - [`docs/RELEASE_GATE.md`](docs/RELEASE_GATE.md): native builds and actual CI run instructions.
+- [`docs/RELEASE.md`](docs/RELEASE.md): reviewed Windows/Linux binary packages,
+  installation, runtime dependencies, and the manual packaging workflow.
 - [`docs/COLLECTIONS_DESIGN.md`](docs/COLLECTIONS_DESIGN.md): immutable list types and ownership.
 - [`docs/MODULES_DESIGN.md`](docs/MODULES_DESIGN.md): canonical module loading and linking.
 - [`docs/REPL.md`](docs/REPL.md): interactive behavior, examples, and state/input limits.

@@ -1,0 +1,292 @@
+name: Stage 1 release packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version embedded in the package name and executable identity"
+        required: true
+        default: "0.1.0"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows x64 UCRT64 package
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install the native UCRT64 toolchain
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            file
+            make
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-make
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pytest
+
+      - name: Build and test the native Windows artifact
+        shell: msys2 {0}
+        env:
+          # Keep the release flags owned by the repository Makefile/CMakeLists.
+          CFLAGS: ""
+          CPPFLAGS: ""
+          LDFLAGS: ""
+        run: |
+          set -euo pipefail
+          test "$MSYSTEM" = UCRT64
+          test "$(gcc -dumpmachine)" = x86_64-w64-mingw32
+          native_cc="$(cygpath -m "$(command -v gcc)")"
+          native_python="$(cygpath -m "$(command -v python)")"
+          native_make="$(cygpath -m "$(command -v mingw32-make)")"
+          gcc --version
+          python -c "import sys, pytest; assert sys.platform == 'win32'; assert sys.version_info >= (3, 10); print(sys.executable, pytest.__version__)"
+
+          mingw32-make OS=Windows_NT CC="$native_cc" PYTHON="$native_python" \
+            CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= build
+          python tools/release_smoke.py --executable "$(cygpath -m "$PWD/aphelion.exe")"
+          mingw32-make OS=Windows_NT CC="$native_cc" PYTHON="$native_python" \
+            CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= test
+
+          cmake -S . -B "build-release" -G "MinGW Makefiles" \
+            "-DCMAKE_C_COMPILER=$native_cc" "-DCMAKE_MAKE_PROGRAM=$native_make" \
+            "-DPython3_EXECUTABLE=$native_python" \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build "build-release" --config Release --parallel
+          python tools/release_smoke.py --executable "$(cygpath -m "$PWD/build-release/aphelion.exe")"
+          ctest --test-dir "build-release" -C Release --output-on-failure --no-tests=error
+
+      - name: Check PE x64 identity and runtime imports
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          identity="$(file -b aphelion.exe)"
+          printf 'aphelion.exe: %s\n' "$identity"
+          case "$identity" in
+            *PE32+*x86-64*) ;;
+            *) printf 'unexpected native identity: %s\n' "$identity" >&2; exit 1 ;;
+          esac
+          objdump -p aphelion.exe | tee "$RUNNER_TEMP/aphelion-windows-imports.txt"
+          python - <<'PY'
+          from pathlib import Path
+
+          report = Path(__import__("os").environ["RUNNER_TEMP"]) / "aphelion-windows-imports.txt"
+          text = report.read_text(encoding="utf-8", errors="replace").lower()
+          if "pei-x86-64" not in text:
+              raise SystemExit("PE import report does not identify an x86-64 image")
+          forbidden = ("msys-2.0.dll", "cygwin1.dll")
+          found = [name for name in forbidden if name in text]
+          if found:
+              raise SystemExit("non-native runtime imports found: " + ", ".join(found))
+          print("Windows runtime imports contain no MSYS/Cygwin runtime")
+          PY
+
+      - name: Create the Windows archive and checksum
+        shell: msys2 {0}
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          project_root="$(cygpath -m "$PWD")"
+          executable="$(cygpath -m "$PWD/aphelion.exe")"
+          output="$(cygpath -m "$PWD/dist/aphelion-${RELEASE_VERSION}-windows.zip")"
+          python tools/release_package.py windows \
+            --version "$RELEASE_VERSION" \
+            --executable "$executable" \
+            --output "$output" \
+            --project-root "$project_root" \
+            --force
+          test -f "dist/aphelion-${RELEASE_VERSION}-windows.zip"
+          test -f "dist/aphelion-${RELEASE_VERSION}-windows.zip.sha256"
+
+      - name: Upload the Windows Actions artifact for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: aphelion-${{ inputs.version }}-windows-x64-ucrt64
+          if-no-files-found: error
+          path: |
+            dist/aphelion-${{ inputs.version }}-windows.zip
+            dist/aphelion-${{ inputs.version }}-windows.zip.sha256
+
+  linux:
+    name: Linux x64 glibc 2.35 package
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install the native inspection tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            binutils build-essential cmake file
+
+      - name: Set up Python and pytest
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Build and test the native Linux artifact
+        env:
+          # Keep the release flags owned by the repository Makefile/CMakeLists.
+          CFLAGS: ""
+          CPPFLAGS: ""
+          LDFLAGS: ""
+        run: |
+          set -euo pipefail
+          gcc --version
+          make CC=gcc PYTHON=python CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= build
+          python tools/release_smoke.py --executable "$PWD/aphelion"
+          make CC=gcc PYTHON=python CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= test
+
+          cmake -S . -B build-release -DCMAKE_C_COMPILER=gcc \
+            "-DPython3_EXECUTABLE=$(command -v python)" \
+            -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+          cmake --build build-release --config Release --parallel
+          python tools/release_smoke.py --executable "$PWD/build-release/aphelion"
+          ctest --test-dir build-release -C Release --output-on-failure --no-tests=error
+
+      - name: Check ELF x64 identity, dependencies, and glibc baseline
+        run: |
+          set -euo pipefail
+          identity="$(file -b aphelion)"
+          printf 'aphelion: %s\n' "$identity"
+          case "$identity" in
+            *ELF*64-bit*x86-64*) ;;
+            *) printf 'unexpected native identity: %s\n' "$identity" >&2; exit 1 ;;
+          esac
+          ldd aphelion | tee "$RUNNER_TEMP/aphelion-linux-dependencies.txt"
+          objdump -T aphelion | tee "$RUNNER_TEMP/aphelion-linux-symbols.txt"
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          dependencies = (Path(os.environ["RUNNER_TEMP"]) / "aphelion-linux-dependencies.txt").read_text()
+          if "not found" in dependencies:
+              raise SystemExit("ldd reported an unresolved Linux runtime dependency")
+          symbols = (Path(os.environ["RUNNER_TEMP"]) / "aphelion-linux-symbols.txt").read_text()
+          versions = [tuple(map(int, match)) for match in re.findall(r"GLIBC_(\d+)\.(\d+)", symbols)]
+          if versions and max(versions) > (2, 35):
+              raise SystemExit(f"binary requires newer than documented glibc 2.35: {max(versions)}")
+          print(f"Linux runtime dependencies resolved; highest GLIBC symbol: {max(versions, default=(0, 0))}")
+          PY
+
+      - name: Create the Linux archive and checksum
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          python tools/release_package.py linux \
+            --version "$RELEASE_VERSION" \
+            --executable "$PWD/aphelion" \
+            --output "$PWD/dist/aphelion-${RELEASE_VERSION}-linux.tar.gz" \
+            --project-root "$PWD" \
+            --force
+          test -f "dist/aphelion-${RELEASE_VERSION}-linux.tar.gz"
+          test -f "dist/aphelion-${RELEASE_VERSION}-linux.tar.gz.sha256"
+
+      - name: Upload the Linux Actions artifact for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: aphelion-${{ inputs.version }}-linux-x64-glibc235
+          if-no-files-found: error
+          path: |
+            dist/aphelion-${{ inputs.version }}-linux.tar.gz
+            dist/aphelion-${{ inputs.version }}-linux.tar.gz.sha256
+
+  windows-clean-install:
+    name: Windows package smoke without development PATH
+    needs: windows
+    runs-on: windows-latest
+    steps:
+      - name: Download the packaged Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aphelion-${{ inputs.version }}-windows-x64-ucrt64
+          path: downloaded
+
+      - name: Verify and run the extracted Windows package
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = Get-ChildItem downloaded -Filter "*.zip" | Select-Object -First 1
+          if ($null -eq $archive) { throw "Windows package archive was not downloaded" }
+          $sidecar = Get-Content "$($archive.FullName).sha256" -Raw
+          $expected = ($sidecar -split "\s+")[0].ToLowerInvariant()
+          $actual = (Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Windows archive checksum mismatch" }
+          $install = Join-Path $PWD "installed"
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $install
+          $root = Get-ChildItem $install -Directory | Select-Object -First 1
+          if ($null -eq $root) { throw "Windows package has no top-level directory" }
+          foreach ($line in Get-Content (Join-Path $root.FullName "SHA256SUMS")) {
+            $parts = $line -split "\s+", 2
+            if ($parts.Count -ne 2) { throw "Malformed Windows package checksum line: $line" }
+            $member = Join-Path $root.FullName $parts[1]
+            $actualMember = (Get-FileHash $member -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actualMember -ne $parts[0].ToLowerInvariant()) {
+              throw "Windows package member checksum mismatch: $($parts[1])"
+            }
+          }
+          $exe = Join-Path $root.FullName "aphelion.exe"
+          $env:Path = "$($root.FullName);$env:SystemRoot\System32;$env:SystemRoot"
+          $version = (& $exe --version 2>&1 | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $version -ne "aphelion ${{ inputs.version }}") {
+            throw "packaged Windows version check failed: $version"
+          }
+          $hello = (& $exe run (Join-Path $root.FullName "examples\hello.agne") 2>&1 | Out-String).TrimEnd()
+          if ($LASTEXITCODE -ne 0 -or $hello -ne "Welcome Aswin`r`nFinal score: 100") {
+            throw "packaged Windows hello example failed: $hello"
+          }
+          $modules = (& $exe run (Join-Path $root.FullName "examples\modules.agne") 2>&1 | Out-String).TrimEnd()
+          if ($LASTEXITCODE -ne 0 -or $modules -ne "module initialized`r`n42") {
+            throw "packaged Windows module example failed: $modules"
+          }
+          Write-Host "Windows package executed with a sanitized PATH and no development toolchain"
+
+  linux-clean-install:
+    name: Linux package smoke without development PATH
+    needs: linux
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download the packaged Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aphelion-${{ inputs.version }}-linux-x64-glibc235
+          path: downloaded
+
+      - name: Verify and run the extracted Linux package
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find downloaded -maxdepth 1 -type f -name '*.tar.gz' -print -quit)"
+          test -n "$archive"
+          (cd "$(dirname "$archive")" && sha256sum -c "$(basename "$archive").sha256")
+          install="$PWD/installed"
+          mkdir -p "$install"
+          tar -xzf "$archive" -C "$install"
+          root="$(find "$install" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$root"
+          (cd "$root" && sha256sum -c SHA256SUMS)
+          version="$(env -i HOME="$HOME" PATH=/usr/bin:/bin "$root/aphelion" --version)"
+          test "$version" = "aphelion ${{ inputs.version }}"
+          hello="$(env -i HOME="$HOME" PATH=/usr/bin:/bin "$root/aphelion" run "$root/examples/hello.agne")"
+          test "$hello" = $'Welcome Aswin\nFinal score: 100'
+          modules="$(env -i HOME="$HOME" PATH=/usr/bin:/bin "$root/aphelion" run "$root/examples/modules.agne")"
+          test "$modules" = $'module initialized\n42'
+          echo "Linux package executed with a sanitized PATH and no development toolchain"

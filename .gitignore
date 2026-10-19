@@ -10,6 +10,7 @@ __pycache__/
 /build/
 /build-*/
 /build Release/
+/dist/
 # CMake/CTest artifacts from an in-source configure or test invocation.
 /CMakeCache.txt
 /CMakeFiles/
