@@ -1,0 +1,21 @@
+// A small Aphelion program using the original vocabulary.
+anchor MAX_LEVEL = 100
+forge username: text = "Aswin"
+shift score: whole = 50
+
+orbit greet(name: text) -> silent {
+    reveal("Welcome " + name)
+    yield
+}
+
+when score >= 40 {
+    greet(username)
+} otherwise {
+    reveal("Keep training")
+}
+
+cycle score < MAX_LEVEL {
+    score += 10
+}
+
+reveal("Final score: " + to_text(score))

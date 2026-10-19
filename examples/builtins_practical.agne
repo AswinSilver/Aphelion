@@ -1,0 +1,24 @@
+forge name: text = receive()
+forge whole_text: text = receive()
+forge decimal_text: text = receive()
+forge count: whole = to_whole(whole_text)
+forge amount: decimal = to_decimal(decimal_text)
+
+orbit twice(value: decimal) -> decimal {
+    yield value * 2.0
+}
+
+assert(name != "", "a name is required")
+assert(count > 0, "count must be positive")
+reveal("Hello " + name)
+reveal(length(name))
+reveal(kind(count))
+reveal(to_text(count) + " items")
+reveal(twice(amount))
+
+shift seen: whole = 0
+cycle seen < count {
+    seen += 1
+}
+assert(seen == count)
+reveal(seen)

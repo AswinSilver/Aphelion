@@ -1,0 +1,11 @@
+orbit names() -> [text] { yield ["a\0b", "c"] }
+shift words: [text] = names()
+forge retained = words
+words = ["replacement"]
+assert(length(retained) == 2)
+assert(length(retained[0]) == 3)
+reveal(retained)
+reveal(length([]))
+forge empty: [whole] = []
+assert(empty == [])
+reveal(kind(empty))

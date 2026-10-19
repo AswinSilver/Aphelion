@@ -1,0 +1,3 @@
+anchor MODULE_SEED = 21
+reveal("module initialized")
+orbit twice_module(value: whole) -> whole { yield value * 2 }

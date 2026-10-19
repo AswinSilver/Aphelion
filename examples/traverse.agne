@@ -1,0 +1,12 @@
+forge values = [1, 2, 3, 4]
+shift total = 0
+traverse item in values {
+    when item == 2 { skip }
+    when item == 4 { escape }
+    total += item
+    reveal(item)
+}
+assert(total == 4)
+forge empty: [text] = []
+traverse word in empty { reveal(word) }
+reveal(total)

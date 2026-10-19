@@ -1,0 +1,3 @@
+summon "lib/math"
+summon "lib/math"
+reveal(twice_module(MODULE_SEED))

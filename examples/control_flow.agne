@@ -1,0 +1,12 @@
+shift count: whole = 0
+
+cycle count < 10 {
+    count += 1
+    when count == 3 {
+        skip
+    }
+    when count == 8 {
+        escape
+    }
+    reveal(count)
+}

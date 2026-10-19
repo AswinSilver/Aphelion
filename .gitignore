@@ -1,0 +1,24 @@
+aphelion
+aphelion.exe
+*.o
+*.apb
+__pycache__/
+.pytest_cache/
+*.d
+/aphelion-sanitize
+/aphelion-sanitize.exe
+/build/
+/build-*/
+/build Release/
+# CMake/CTest artifacts from an in-source configure or test invocation.
+/CMakeCache.txt
+/CMakeFiles/
+/cmake_install.cmake
+/CTestTestfile.cmake
+/DartConfiguration.tcl
+/Testing/
+/fuzz-*.json
+/core
+/core.*
+# Private local app/session state is not part of the source release.
+/.omnirush/

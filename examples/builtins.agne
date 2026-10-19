@@ -1,0 +1,8 @@
+forge greeting = "héllo"
+forge binary = "a\0b"
+assert(length(greeting) == 6, "UTF-8 text length counts bytes")
+assert(length(binary) == 3, "embedded NUL bytes are retained")
+reveal(length(greeting))
+reveal(kind(binary))
+reveal(kind(hollow))
+assert(bright)

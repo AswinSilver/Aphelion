@@ -1,0 +1,4 @@
+1 + 2
+length("héllo")
+forge n = 3; reveal(n * 2)
+traverse n in [1, 2] { reveal(n) }

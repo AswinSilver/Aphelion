@@ -1,0 +1,9 @@
+orbit factorial(value: whole) -> whole {
+    when value <= 1 {
+        yield 1
+    } otherwise {
+        yield value * factorial(value - 1)
+    }
+}
+
+reveal(factorial(5))
