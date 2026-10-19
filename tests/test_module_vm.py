@@ -5,8 +5,8 @@ import subprocess
 
 import pytest
 
-from conftest import (ROOT, compiler_command, math_libraries, native_executable_name,
-                      test_cflags as extra_cflags)
+from conftest import (ROOT, compiler_command, diagnostic_path, math_libraries,
+                      native_executable_name, test_cflags as extra_cflags)
 from test_aphelion import run_cli, write_program
 from test_collection_vm import collection_executable, text, whole
 
@@ -302,7 +302,7 @@ def test_linked_runtime_filenames_and_standalone_reexecution(
     assert entry.with_suffix(".apb").read_bytes()[:8] == b"APB1\x01\x00\x00\x00"
     result = run_cli(aphelion_executable, "run", str(entry))
     assert result.returncode == 1
-    expected = f"{(tmp_path / filename).resolve()}:{line}:"
+    expected = f"{diagnostic_path(tmp_path / filename)}:{line}:"
     assert expected in result.stderr, result.stderr
     dependency.unlink()
     entry.unlink()

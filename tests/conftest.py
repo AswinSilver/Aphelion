@@ -116,6 +116,11 @@ def native_executable_name(stem):
     return stem + (".exe" if WINDOWS else "")
 
 
+def diagnostic_path(path):
+    """Return the canonical source path spelling used in diagnostics."""
+    return Path(path).resolve().as_posix()
+
+
 def math_libraries():
     return [] if WINDOWS else ["-lm"]
 

@@ -6,8 +6,8 @@ import subprocess
 
 import pytest
 
-from conftest import (ROOT, compiler_command, math_libraries, native_executable_name,
-                      test_cflags as extra_cflags)
+from conftest import (ROOT, compiler_command, diagnostic_path, math_libraries,
+                      native_executable_name, test_cflags as extra_cflags)
 from test_aphelion import run_cli
 
 
@@ -155,5 +155,5 @@ def test_module_under_unicode_root_preserves_diagnostic_path(aphelion_executable
     dependency.write_text('orbit f() -> whole { yield 1 / 0 }\n', encoding="utf-8")
     result = run_cli(aphelion_executable, "run", str(entry))
     assert result.returncode == 1
-    assert str(dependency.resolve()) in result.stderr
+    assert diagnostic_path(dependency) in result.stderr
     assert "division by zero" in result.stderr

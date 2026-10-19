@@ -61,13 +61,44 @@ static char *module_copy(const char *text, size_t length) {
 }
 
 static void module_path_error(ModuleLoader *loader, SourceLocation location,
-                               const char *message, const char *path) {
+                              const char *message, const char *path) {
     char detail[768];
-    (void)snprintf(detail, sizeof(detail), "%s: '%s'", message, path);
+    const char *path_for_message = path != NULL ? path : "<path>";
+    int prefix_length;
+    size_t used;
+#ifdef _WIN32
+    char normalized_path[sizeof(detail)];
+    size_t i;
+    if (path != NULL) {
+        for (i = 0u; i + 1u < sizeof(normalized_path) && path[i] != '\0'; ++i)
+            normalized_path[i] = path[i] == '\\' ? '/' : path[i];
+        normalized_path[i] = '\0';
+        path_for_message = normalized_path;
+    }
+#endif
+    prefix_length = snprintf(detail, sizeof(detail), "%s: '", message);
+    if (prefix_length < 0) {
+        module_error(loader, location, "module path diagnostic formatting failed");
+        return;
+    }
+    used = (size_t)prefix_length < sizeof(detail) ? (size_t)prefix_length : sizeof(detail) - 1u;
+    while (path_for_message[0] != '\0' && used + 2u < sizeof(detail)) {
+        detail[used++] = path_for_message[0];
+        ++path_for_message;
+    }
+    if (used + 1u < sizeof(detail)) detail[used++] = '\'';
+    detail[used] = '\0';
     module_error(loader, location, detail);
 }
 
 #ifdef _WIN32
+static void normalize_display_path(char *path) {
+    if (path == NULL) return;
+    for (; *path != '\0'; ++path) {
+        if (*path == '\\') *path = '/';
+    }
+}
+
 static wchar_t *native_path(const char *path) {
     int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, path, -1, NULL, 0);
     wchar_t *wide;
@@ -190,11 +221,19 @@ static bool is_separator(char value) {
 static bool windows_paths_match(const char *left, const char *right, bool prefix) {
     wchar_t native_left[32768];
     wchar_t native_right[32768];
+    int i;
     int left_count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, left, -1,
                                          native_left, 32768);
     int right_count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, right, -1,
                                           native_right, 32768);
     if (left_count <= 1 || right_count <= 1) return false;
+    /* Canonical display paths use '/', while filesystem candidates may use
+     * '\\'. Compare the same native spelling without changing either stored
+     * path or the path used for filesystem access. */
+    for (i = 0; i < left_count; ++i)
+        if (native_left[i] == L'/') native_left[i] = L'\\';
+    for (i = 0; i < right_count; ++i)
+        if (native_right[i] == L'/') native_right[i] = L'\\';
     if (!prefix) {
         return CompareStringOrdinal(native_left, left_count - 1, native_right,
                                      right_count - 1, TRUE) == CSTR_EQUAL;
@@ -387,6 +426,12 @@ static bool resolve_import(ModuleLoader *loader, const AstStmt *statement,
     loader->result->source_files[i] = canonical;
     source = read_module(loader, canonical, location);
     if (source == NULL) return false;
+#ifdef _WIN32
+    /* The file was opened and validated with the native canonical spelling.
+     * Normalize only after filesystem access, for diagnostics and source
+     * locations retained by the parsed module. */
+    normalize_display_path(canonical);
+#endif
     program = parse_module(loader, i, source);
     free(source);
     if (program == NULL || loader->result->had_parse_error) return false;
@@ -463,6 +508,9 @@ AstProgram *aphelion_module_parse(const char *filename, const char *source,
         module_error(&loader, location, "out of memory creating module root");
         return result;
     }
+#ifdef _WIN32
+    normalize_display_path(result->source_files[0]);
+#endif
     /* Parse the entry under its retained canonical identity. The first parse
      * makes no-import/in-memory clients independent of filesystem setup. */
     root_program = parse_module(&loader, 0u, source);

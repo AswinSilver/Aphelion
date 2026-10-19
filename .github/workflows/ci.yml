@@ -28,6 +28,12 @@ jobs:
             mingw-w64-ucrt-x86_64-python-pytest
       - name: Strict native UCRT64 Make and CMake release gates
         shell: msys2 {0}
+        env:
+          # CI owns the complete flag set below. Do not let runner-wide
+          # CFLAGS/CPPFLAGS/LDFLAGS values arrive as one quoted argument.
+          CFLAGS: ""
+          CPPFLAGS: ""
+          LDFLAGS: ""
         run: |
           set -euo pipefail
           test "$MSYSTEM" = UCRT64
@@ -37,9 +43,11 @@ jobs:
           native_make="$(cygpath -m "$(command -v mingw32-make)")"
           gcc --version
           python -c "import sys, pytest; assert sys.platform == 'win32'; assert sys.version_info >= (3, 10); print(sys.executable, pytest.__version__)"
-          mingw32-make OS=Windows_NT CC="$native_cc" PYTHON="$native_python" build
+          mingw32-make OS=Windows_NT CC="$native_cc" PYTHON="$native_python" \
+            CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= build
           python tools/release_smoke.py --executable "$(cygpath -m "$PWD/aphelion.exe")"
-          mingw32-make OS=Windows_NT CC="$native_cc" PYTHON="$native_python" test
+          mingw32-make OS=Windows_NT CC="$native_cc" PYTHON="$native_python" \
+            CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= test
           ./aphelion.exe run examples/hello.agne
           cmake -S . -B "build Release" -G "MinGW Makefiles" \
             "-DCMAKE_C_COMPILER=$native_cc" "-DCMAKE_MAKE_PROGRAM=$native_make" \
@@ -66,14 +74,22 @@ jobs:
         run: brew install make
       - name: Strict native Clang Make and CMake release gates
         shell: bash
+        env:
+          # CI owns the complete flag set below. Do not let runner-wide
+          # CFLAGS/CPPFLAGS/LDFLAGS values arrive as one quoted argument.
+          CFLAGS: ""
+          CPPFLAGS: ""
+          LDFLAGS: ""
         run: |
           set -euo pipefail
           native_cc="$(xcrun --find clang)"
           native_python="$(command -v python)"
           "$native_cc" --version
-          gmake CC="$native_cc" PYTHON="$native_python" build
+          gmake CC="$native_cc" PYTHON="$native_python" \
+            CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= build
           python tools/release_smoke.py --executable "$PWD/aphelion"
-          gmake CC="$native_cc" PYTHON="$native_python" test
+          gmake CC="$native_cc" PYTHON="$native_python" \
+            CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= test
           ./aphelion run examples/hello.agne
           cmake -S . -B "build Release" "-DCMAKE_C_COMPILER=$native_cc" \
             "-DPython3_EXECUTABLE=$native_python" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON

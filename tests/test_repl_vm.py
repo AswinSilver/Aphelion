@@ -5,8 +5,8 @@ import subprocess
 
 import pytest
 
-from conftest import (ROOT, compiler_command, math_libraries, native_executable_name,
-                      test_cflags as extra_cflags)
+from conftest import (ROOT, compiler_command, diagnostic_path, math_libraries,
+                      native_executable_name, test_cflags as extra_cflags)
 
 
 @pytest.fixture(scope="session")
@@ -191,7 +191,7 @@ def test_linked_source_markers_and_ast_lifetime_are_preserved(repl_vm_executable
     source.write_text('summon "dep"\n"ok"\n  1 / 0\n', encoding="utf-8")
     failed = run_api(repl_vm_executable, source, "--linked")
     assert failed.returncode == 1
-    assert f"{source.resolve()}:3:3:" in failed.stderr
+    assert f"{diagnostic_path(source)}:3:3:" in failed.stderr
 
 
 def test_echo_bytecode_roundtrip_is_version_one_and_reexecutes_identically(repl_vm_executable, tmp_path):

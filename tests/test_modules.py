@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from conftest import (ROOT, compiler_command, native_executable_name,
+from conftest import (ROOT, compiler_command, diagnostic_path, native_executable_name,
                       test_cflags as extra_cflags)
 from test_aphelion import run_cli
 from test_module_vm import source_executable  # standalone .apb runner
@@ -59,7 +59,7 @@ def test_early_cross_module_global_read_still_fails(aphelion_executable, tmp_pat
     result = run_cli(aphelion_executable, "run", str(entry))
     assert result.returncode == 1
     assert "before initialization" in result.stderr
-    assert f"{entry.resolve()}:3:" in result.stderr
+    assert f"{diagnostic_path(entry)}:3:" in result.stderr
 
 
 @pytest.mark.parametrize("name", ["", "/absolute", "C:/drive", "C:drive", "//unc/path",
@@ -91,7 +91,7 @@ def test_missing_transitive_import_has_importing_filename(aphelion_executable, t
     entry = module(tmp_path, "entry", 'summon "nested/dep"\n')
     result = run_cli(aphelion_executable, "check", str(entry))
     assert result.returncode == 1
-    assert f"{dependency.resolve()}:2:" in result.stderr, result.stderr
+    assert f"{diagnostic_path(dependency)}:2:" in result.stderr, result.stderr
     assert "cannot open module source" in result.stderr
     assert "missing.agne" in result.stderr
 
@@ -113,8 +113,8 @@ def test_import_cycle_is_a_located_error(aphelion_executable, tmp_path, self_cyc
     result = run_cli(aphelion_executable, "check", str(entry))
     assert result.returncode == 1
     assert "cycle" in result.stderr
-    assert str(entry.resolve()) in result.stderr
-    assert str((entry if self_cycle else dependency).resolve()) in result.stderr
+    assert diagnostic_path(entry) in result.stderr
+    assert diagnostic_path(entry if self_cycle else dependency) in result.stderr
 
 
 @pytest.mark.parametrize(("dependency", "root"), [
