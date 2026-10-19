@@ -75,15 +75,18 @@ in `QUICKSTART.md`. Missing sanitizer libraries must fail, not disable checks.
 
 ## macOS
 
-Install Apple's Command Line Tools with `xcode-select --install`, plus CMake
-and Python >=3.10 with pytest (for example a Python virtual environment).
-The GitHub macOS image supplies Xcode/Clang, Make, and CMake; setup-python and
-pip supply the selected Python and pytest.
+Install Apple's Command Line Tools with `xcode-select --install`, Homebrew's
+GNU make (`brew install make`), plus CMake and Python >=3.10 with pytest (for
+example a Python virtual environment). The checked-in Makefile uses GNU make
+syntax; macOS's system `make` is BSD make, so use the Homebrew `gmake`
+executable. The GitHub macOS image supplies Xcode/Clang and CMake; setup-python
+and pip supply the selected Python and pytest.
 
 ```sh
 python -m pip install pytest
-make CC="$(xcrun --find clang)" PYTHON=python build
-make CC="$(xcrun --find clang)" PYTHON=python test
+brew install make
+gmake CC="$(xcrun --find clang)" PYTHON=python build
+gmake CC="$(xcrun --find clang)" PYTHON=python test
 python tools/release_smoke.py --executable ./aphelion
 cmake -S . -B build-macos -DCMAKE_C_COMPILER="$(xcrun --find clang)" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 cmake --build build-macos --config Release --parallel

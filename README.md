@@ -85,9 +85,14 @@ filenames. Before distributing a Windows binary, inspect and supply any
 toolchain runtime DLLs as described in `docs/RELEASE_GATE.md`; native does not
 mean standalone.
 
-The repository also contains a `Makefile` for environments with `make` and a
+The repository also contains a GNU-make `Makefile` (use `gmake` on macOS,
+where the system `make` is BSD make) and a
 `CMakeLists.txt` for environments with CMake.  CMake is configured for C11 and
 does not add third-party dependencies.
+
+On Linux, use `make` for the commands below. On macOS, install GNU Make with
+`brew install make` and use `gmake` instead. On Windows, follow the native
+MinGW/UCRT64 instructions in `docs/RELEASE_GATE.md` and use `mingw32-make`.
 
 ```sh
 make build
