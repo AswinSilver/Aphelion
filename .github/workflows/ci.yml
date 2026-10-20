@@ -82,16 +82,22 @@ jobs:
           LDFLAGS: ""
         run: |
           set -euo pipefail
-          native_cc="$(xcrun --find clang)"
+          xcode-select -p
+          sdkroot="$(xcrun --sdk macosx --show-sdk-path)"
+          test -d "$sdkroot"
+          native_cc="$(xcrun --sdk macosx --find clang)"
           native_python="$(command -v python)"
           "$native_cc" --version
+          printf '#include <stdlib.h>\n' | "$native_cc" -isysroot "$sdkroot" -std=c11 -x c - -fsyntax-only
+          export SDKROOT="$sdkroot"
           gmake CC="$native_cc" PYTHON="$native_python" \
-            CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= build
+            CPPFLAGS="-Iinclude -isysroot $sdkroot" CFLAGS= LDFLAGS= build
           python tools/release_smoke.py --executable "$PWD/aphelion"
           gmake CC="$native_cc" PYTHON="$native_python" \
-            CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= test
+            CPPFLAGS="-Iinclude -isysroot $sdkroot" CFLAGS= LDFLAGS= test
           ./aphelion run examples/hello.agne
           cmake -S . -B "build Release" "-DCMAKE_C_COMPILER=$native_cc" \
+            "-DCMAKE_OSX_SYSROOT=$sdkroot" \
             "-DPython3_EXECUTABLE=$native_python" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
           cmake --build "build Release" --config Release --parallel
           python tools/release_smoke.py --executable "$PWD/build Release/aphelion"

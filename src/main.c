@@ -8,6 +8,7 @@
 #include "aphelion/parser.h"
 #include "aphelion/semantic.h"
 #include "aphelion/token.h"
+#include "aphelion/version.h"
 #include "aphelion/vm.h"
 
 #include <errno.h>
@@ -25,7 +26,6 @@
 #include <unistd.h>
 #endif
 
-#define APHELION_VERSION "0.1.0"
 #define SOURCE_FILE_LIMIT (64u * 1024u * 1024u)
 #define REPL_LINE_LIMIT (64u * 1024u)
 

@@ -32,10 +32,18 @@ import tempfile
 import zipfile
 from typing import Iterable, NoReturn, Sequence
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from release_version import (
+    VERSION_PATTERN,
+    VersionFailure,
+    require_binary_version,
+    require_source_version,
+    validate_version,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = "aphelion"
-VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 REQUIRED_EXAMPLES = (
     "hello.agne",
     "factorial.agne",
@@ -402,6 +410,8 @@ def select_sources(root: Path, includes: Sequence[str]) -> list[Artifact]:
     def regular_example(path: Path) -> Path:
         if path.is_symlink():
             fail(f"selected example/module must not be a symlink: {path}")
+        if path.suffix != ".agne":
+            fail(f"selected example/module must use the .agne extension: {path}")
         try:
             resolved = path.resolve(strict=True)
         except OSError as error:
@@ -458,6 +468,18 @@ def select_sources(root: Path, includes: Sequence[str]) -> list[Artifact]:
     if not artifacts:
         fail("no examples/modules were selected")
     return sorted(artifacts, key=lambda item: item.archive_path)
+
+
+def select_license(root: Path) -> Artifact:
+    path = root / "LICENSE"
+    if path.is_symlink() or not path.is_file():
+        fail(f"required MIT license file is missing or not a regular file: {path}")
+    try:
+        if not stat.S_ISREG(path.stat().st_mode):
+            fail(f"required MIT license file is not a regular file: {path}")
+    except OSError as error:
+        fail(f"required MIT license file cannot be inspected: {path}: {error}")
+    return Artifact(path.resolve(), "LICENSE", "license")
 
 
 def dependency_artifacts(dependencies: Sequence[Dependency]) -> list[Artifact]:
@@ -612,8 +634,10 @@ def verify_archive(output: Path, mode: str,
 
 def package(mode: str, version: str, output: Path, executable: Path,
             root: Path, includes: Sequence[str], force: bool) -> Path:
-    if not VERSION_PATTERN.fullmatch(version):
-        fail(f"invalid version {version!r}; expected a dotted version such as 0.1.0")
+    try:
+        validate_version(version)
+    except VersionFailure as error:
+        fail(str(error))
     executable = require_executable(executable)
     expected_executable_name = "aphelion.exe" if mode == "windows" else "aphelion"
     if executable.name.casefold() != expected_executable_name.casefold():
@@ -624,6 +648,13 @@ def package(mode: str, version: str, output: Path, executable: Path,
     root = root.resolve()
     if not root.is_dir():
         fail(f"project root is not a directory: {root}")
+    version_source = root / "include" / "aphelion" / "version.h"
+    has_version_source = version_source.is_file()
+    if has_version_source:
+        try:
+            require_source_version(version, source=version_source)
+        except VersionFailure as error:
+            fail(str(error))
     output = output.expanduser().resolve()
     expected_suffix = ".zip" if mode == "windows" else ".tar.gz"
     if not str(output).lower().endswith(expected_suffix):
@@ -635,7 +666,13 @@ def package(mode: str, version: str, output: Path, executable: Path,
 
     file_tool = required_tool("file")
     identity = inspect_file_identity(executable, mode, file_tool)
-    verify_version(executable, version)
+    try:
+        if has_version_source:
+            require_binary_version(version, executable, source=version_source)
+        else:
+            verify_version(executable, version)
+    except VersionFailure as error:
+        fail(str(error))
     if mode == "windows":
         dependencies = inspect_windows(executable, required_tool("objdump"))
     else:
@@ -644,6 +681,7 @@ def package(mode: str, version: str, output: Path, executable: Path,
     root_name = f"{PRODUCT}-{version}-{mode}"
     executable_name = executable.name
     executable_artifact = Artifact(executable, executable_name, "native executable")
+    license_artifact = select_license(root)
     source_artifacts = select_sources(root, includes)
     runtime_artifacts = dependency_artifacts(dependencies)
     if mode == "linux" and runtime_artifacts:
@@ -652,7 +690,7 @@ def package(mode: str, version: str, output: Path, executable: Path,
             "packaging requires a verified RPATH/launcher before those files "
             "can be distributed safely"
         )
-    artifacts = [executable_artifact, *runtime_artifacts, *source_artifacts]
+    artifacts = [executable_artifact, license_artifact, *runtime_artifacts, *source_artifacts]
     archive_paths = [item.archive_path for item in artifacts]
     if len(archive_paths) != len(set(archive_paths)):
         fail("executable and runtime artifacts have colliding archive names")

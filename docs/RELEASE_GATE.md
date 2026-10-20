@@ -3,14 +3,24 @@
 Configured jobs are not evidence of successful native runs. See the current
 section of `../DEVELOPMENT_STATUS.md` for actual environment/results. A native
 Windows i686 MinGW build and a fresh x86-64 Debian WSL2 build have passed
-locally, including the latter's ASan/UBSan/leak checks. The distinct UCRT64
-x86-64, macOS, and GitHub Linux jobs still need execution. No memory-safety
-proof or exhaustive fuzzing is claimed.
+locally, including the latter's ASan/UBSan/leak checks. The hosted Stage 1 run
+passed the distinct UCRT64 x86-64 and Ubuntu Linux packaging jobs; the hosted
+macOS CI job still needs a successful run. No memory-safety proof or exhaustive
+fuzzing is claimed.
 
 The manual Stage 1 binary packaging workflow is documented in
 [`RELEASE.md`](RELEASE.md). It consumes native artifacts only after these
 build/smoke/dependency gates and creates review-only Actions artifacts; it does
 not create a GitHub Release or publish packages.
+
+The separate `public-release.yml` workflow is manual and requires an existing
+`vX.Y.Z` tag. It validates the tag's commit SHA and version against
+`include/aphelion/version.h` and the tested binaries, builds both supported
+targets, and only creates a public GitHub Release from the protected
+`public-release` environment job. It never pushes tags. Configure that
+environment's required reviewers before using the workflow. The repository
+uses the MIT License in the root `LICENSE` file; the release packager requires
+that file and includes it in every archive's manifest and checksum set.
 
 ## Native Windows (MSYS2 UCRT64)
 
@@ -103,11 +113,11 @@ These commands/jobs are configured, not an assertion of a macOS run here.
 
 ## Run the actual GitHub gates
 
-This workspace currently has no `.git`, remote, or `gh`, so a remote run cannot
-be dispatched here. Publish the reviewed source and `.github/workflows/ci.yml`
-to the intended GitHub repository/branch; do not publish generated binaries,
-private `.omnirush` state, credentials, or temporary reports. This session has
-not committed, initialized a repository, or pushed anything.
+The repository records the hosted results in `DEVELOPMENT_STATUS.md`. A future
+remote run requires an authenticated GitHub account and explicit approval; do
+not publish generated binaries, private `.omnirush` state, credentials, or
+temporary reports. This local review does not dispatch workflows or publish
+anything.
 
 On GitHub, select **Actions > CI > Run workflow**, choose that branch, and run
 it. `workflow_dispatch` must be available on the repository's default branch.

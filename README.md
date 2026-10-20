@@ -15,7 +15,8 @@ another language:
 
 ## Current release
 
-Version `0.1.0` implements the following core. Start with
+The checked-in release identity is `include/aphelion/version.h`. Version
+`0.1.0` implements the following core. Start with
 [`docs/QUICKSTART.md`](docs/QUICKSTART.md) for platform-specific setup and
 [`docs/RELIABILITY.md`](docs/RELIABILITY.md) for this stage's safety contract.
 
@@ -224,6 +225,11 @@ commands and the local PIE startup workaround are in `docs/QUICKSTART.md`.
 - [`docs/REPL.md`](docs/REPL.md): interactive behavior, examples, and state/input limits.
 - [`DEVELOPMENT_STATUS.md`](DEVELOPMENT_STATUS.md): verified checks, design
   decisions, and the next implementation boundary.
+
+## License
+
+Aphelion is distributed under the MIT License. See [`LICENSE`](LICENSE) for the
+complete license text.
 
 ## Roadmap
 

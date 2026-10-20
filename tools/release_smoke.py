@@ -9,6 +9,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from release_version import VersionFailure, read_version, validate_version
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TIMEOUT_SECONDS = 5
@@ -73,12 +76,20 @@ class Smoke:
         self.checks += 1
 
 
-def smoke(executable: Path) -> int:
+def smoke(executable: Path, expected_version: str | None = None) -> int:
+    try:
+        source_version = read_version()
+        if expected_version is not None and validate_version(expected_version) != source_version:
+            raise VersionFailure(
+                f"version mismatch: requested {expected_version}, checked-in source is {source_version}"
+            )
+    except VersionFailure as error:
+        raise SmokeFailure(str(error)) from error
     # Even copies of the examples live here: compile writes beside its input.
     with tempfile.TemporaryDirectory(prefix="aphelion release smoke ") as temporary:
         directory = Path(temporary)
         runner = Smoke(executable, directory)
-        runner.run("--version", stdout="aphelion 0.1.0\n")
+        runner.run("--version", stdout=f"aphelion {source_version}\n")
         runner.run("--help", contains=("Usage:", "aphelion run", "aphelion disasm"))
 
         for name, expected in EXAMPLES.items():
@@ -158,12 +169,15 @@ def main(argv: list[str] | None = None) -> int:
         "--executable", required=True, type=Path,
         help="exact native executable path (no PATH lookup or suffix inference)",
     )
+    parser.add_argument(
+        "--version", help="release version input; must match the checked-in source and binary",
+    )
     args = parser.parse_args(argv)
     executable = args.executable.resolve()
     if not executable.is_file():
         parser.error(f"executable is not a file: {executable}")
     try:
-        checks = smoke(executable)
+        checks = smoke(executable, args.version)
     except (SmokeFailure, OSError) as error:
         print(f"Release smoke FAILED: {error}", file=sys.stderr)
         return 1

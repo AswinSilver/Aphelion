@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import importlib.util
 import json
 from pathlib import Path
@@ -22,6 +23,12 @@ assert SPEC is not None and SPEC.loader is not None
 release_package = importlib.util.module_from_spec(SPEC)
 sys.modules["release_package"] = release_package
 SPEC.loader.exec_module(release_package)
+VERIFY_MODULE_PATH = ROOT / "tools" / "verify_release_archive.py"
+VERIFY_SPEC = importlib.util.spec_from_file_location("verify_release_archive", VERIFY_MODULE_PATH)
+assert VERIFY_SPEC is not None and VERIFY_SPEC.loader is not None
+verify_release_archive = importlib.util.module_from_spec(VERIFY_SPEC)
+sys.modules["verify_release_archive"] = verify_release_archive
+VERIFY_SPEC.loader.exec_module(verify_release_archive)
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "release-package.yml"
 
 
@@ -116,6 +123,8 @@ def test_windows_validator_rejects_directory_metadata_before_extraction(
 
 
 def make_examples(root: Path) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "LICENSE").write_bytes(b"MIT License\n")
     examples = root / "examples"
     (examples / "lib").mkdir(parents=True)
     for name in (*release_package.REQUIRED_EXAMPLES, *release_package.REQUIRED_MODULES):
@@ -181,6 +190,44 @@ def test_identical_bytes_from_different_paths_make_identical_archives(
     ))
     assert all(str(first_root) not in value and str(second_root) not in value
                for value in members)
+    assert members["aphelion-1.2.3-linux/LICENSE"] == b"MIT License\n"
+    assert {item["path"] for item in manifest["files"]} >= {"LICENSE", "aphelion"}
+
+
+def test_package_rejects_version_different_from_project_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "project"
+    make_examples(root)
+    source = root / "include" / "aphelion"
+    source.mkdir(parents=True)
+    (source / "version.h").write_text(
+        '#define APHELION_VERSION "0.1.0"\n', encoding="utf-8"
+    )
+    executable = root / "aphelion"
+    executable.write_bytes(b"executable")
+    with pytest.raises(release_package.PackageFailure, match="version mismatch"):
+        release_package.package(
+            "linux", "1.2.3", tmp_path / "package.tar.gz", executable, root,
+            ["hello.agne"], False,
+        )
+
+
+def test_package_requires_repository_license(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_file_and_linux_tools(monkeypatch)
+    root = tmp_path / "project"
+    make_examples(root)
+    (root / "LICENSE").unlink()
+    executable = root / "aphelion"
+    executable.write_bytes(b"executable")
+
+    with pytest.raises(release_package.PackageFailure, match="MIT license file"):
+        release_package.package(
+            "linux", "1.2.3", tmp_path / "package.tar.gz", executable, root,
+            ["hello.agne"], False,
+        )
 
 
 def fake_objdump(monkeypatch: pytest.MonkeyPatch, graph: dict[str, list[str]]) -> None:
@@ -267,6 +314,15 @@ def test_default_examples_reject_non_regular_files(tmp_path: Path) -> None:
         release_package.select_sources(tmp_path, [])
 
 
+def test_explicit_examples_reject_non_agne_files(tmp_path: Path) -> None:
+    examples = make_examples(tmp_path)
+    extra = examples / "not-source.txt"
+    extra.write_text("must not ship", encoding="utf-8")
+
+    with pytest.raises(release_package.PackageFailure, match=".agne extension"):
+        release_package.select_sources(tmp_path, ["not-source.txt"])
+
+
 @pytest.mark.parametrize("target_kind", ["inside", "outside"])
 def test_default_examples_reject_symlinks(tmp_path: Path, target_kind: str) -> None:
     examples = make_examples(tmp_path)
@@ -281,3 +337,178 @@ def test_default_examples_reject_symlinks(tmp_path: Path, target_kind: str) -> N
 
     with pytest.raises(release_package.PackageFailure, match="must not be a symlink"):
         release_package.select_sources(tmp_path, [])
+
+
+def make_verified_archive(path: Path, mode: str, *, executable_attributes: int = 0,
+                          executable_name: str | None = None,
+                          manifest_changes: dict | None = None,
+                          payload: bytes = b"native executable",
+                          extra_payload: dict[str, bytes] | None = None,
+                          include_license: bool = True) -> None:
+    """Write a small archive in the public release format for validator tests."""
+    root = f"aphelion-0.1.0-{mode}"
+    executable = "aphelion.exe" if mode == "windows" else "aphelion"
+    executable = executable_name or executable
+    executable_hash = hashlib.sha256(payload).hexdigest()
+    payloads = {"aphelion.exe" if mode == "windows" else "aphelion": payload}
+    if include_license:
+        payloads["LICENSE"] = b"MIT License\n"
+    payloads.update(extra_payload or {})
+    files = []
+    for relative, data in sorted(payloads.items()):
+        kind = ("native executable" if relative == ("aphelion.exe" if mode == "windows" else "aphelion")
+                else "license" if relative == "LICENSE"
+                else "runtime dependency" if mode == "windows" and relative.casefold().endswith(".dll")
+                else "example/module")
+        files.append({"path": relative, "kind": kind, "size": len(data),
+                      "sha256": hashlib.sha256(data).hexdigest()})
+    manifest = {
+        "format": 1,
+        "product": "aphelion",
+        "version": "0.1.0",
+        "platform": mode,
+        "native_identity": "PE32+ executable x86-64" if mode == "windows"
+        else "ELF 64-bit LSB pie executable, x86-64",
+        "dependency_inspector": "objdump -p" if mode == "windows" else "ldd",
+        "executable": "aphelion.exe" if mode == "windows" else "aphelion",
+        "executable_sha256": executable_hash,
+        "dependencies": [],
+        "files": files,
+        "checksums": "SHA256SUMS",
+    }
+    if manifest_changes:
+        manifest.update(manifest_changes)
+    manifest_bytes = (json.dumps(manifest, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    checksum_lines = [
+        f"{hashlib.sha256(data).hexdigest()}  {relative}\n"
+        for relative, data in sorted(payloads.items())
+    ]
+    checksum_lines.append(f"{hashlib.sha256(manifest_bytes).hexdigest()}  manifest.json\n")
+    checksums = "".join(checksum_lines).encode("ascii")
+    if mode == "windows":
+        with zipfile.ZipFile(path, "w") as archive:
+            for relative, data in sorted(payloads.items()):
+                info = zipfile.ZipInfo(f"{root}/{relative}")
+                info.external_attr = executable_attributes if relative == executable else 0
+                archive.writestr(info, data)
+            archive.writestr(f"{root}/manifest.json", manifest_bytes)
+            archive.writestr(f"{root}/SHA256SUMS", checksums)
+    else:
+        with tarfile.open(path, "w:gz") as archive:
+            tar_payloads = [
+                (f"{root}/{relative}", data, 0o755 if relative == executable else 0o644)
+                for relative, data in sorted(payloads.items())
+            ]
+            for name, data, mode_bits in (*tar_payloads,
+                                          (f"{root}/manifest.json", manifest_bytes, 0o644),
+                                          (f"{root}/SHA256SUMS", checksums, 0o644)):
+                info = tarfile.TarInfo(name)
+                info.size = len(data)
+                info.mode = mode_bits
+                archive.addfile(info, io.BytesIO(data))
+
+
+@pytest.mark.parametrize("mode", ["windows", "linux"])
+def test_release_archive_validator_accepts_minimal_public_packages(
+    tmp_path: Path, mode: str,
+) -> None:
+    archive = tmp_path / ("package.zip" if mode == "windows" else "package.tar.gz")
+    make_verified_archive(archive, mode)
+
+    verify_release_archive.validate_archive(archive, mode, "0.1.0")
+
+
+@pytest.mark.parametrize(
+    ("mode", "extra_payload"),
+    [("windows", {"ucrtbase.dll": b"runtime"}),
+     ("linux", {"examples/hello.agne": b"hello"})],
+)
+def test_release_archive_validator_accepts_platform_payload_members(
+    tmp_path: Path, mode: str, extra_payload: dict[str, bytes],
+) -> None:
+    archive = tmp_path / ("package.zip" if mode == "windows" else "package.tar.gz")
+    make_verified_archive(archive, mode, extra_payload=extra_payload)
+
+    verify_release_archive.validate_archive(archive, mode, "0.1.0")
+
+
+@pytest.mark.parametrize("mode", ["windows", "linux"])
+def test_release_archive_validator_requires_license(
+    tmp_path: Path, mode: str,
+) -> None:
+    archive = tmp_path / ("package.zip" if mode == "windows" else "package.tar.gz")
+    make_verified_archive(archive, mode, include_license=False)
+
+    with pytest.raises(verify_release_archive.ArchiveValidationError, match="required LICENSE"):
+        verify_release_archive.validate_archive(archive, mode, "0.1.0")
+
+
+@pytest.mark.parametrize("external_attributes", [0x0010, 0x4000 << 16])
+def test_release_archive_validator_rejects_windows_directory_bits(
+    tmp_path: Path, external_attributes: int,
+) -> None:
+    archive = tmp_path / "package.zip"
+    make_verified_archive(archive, "windows", executable_attributes=external_attributes)
+
+    with pytest.raises(verify_release_archive.ArchiveValidationError, match="directory member"):
+        verify_release_archive.validate_archive(archive, "windows", "0.1.0")
+
+
+def test_release_archive_validator_rejects_traversal_before_manifest_read(tmp_path: Path) -> None:
+    archive = tmp_path / "package.zip"
+    root = "aphelion-0.1.0-windows"
+    with zipfile.ZipFile(archive, "w") as output:
+        output.writestr(f"{root}/../outside", b"unsafe")
+
+    with pytest.raises(verify_release_archive.ArchiveValidationError, match="unsafe archive member path"):
+        verify_release_archive.validate_archive(archive, "windows", "0.1.0")
+
+
+def test_release_archive_validator_rejects_manifest_hash_mismatch(tmp_path: Path) -> None:
+    archive = tmp_path / "package.tar.gz"
+    make_verified_archive(archive, "linux", payload=b"changed after manifest")
+    # The fixture's manifest was generated from this payload, so corrupt only
+    # the executable member while preserving the archive's metadata files.
+    rewritten = tmp_path / "corrupt.tar.gz"
+    with tarfile.open(archive, "r:gz") as source, tarfile.open(rewritten, "w:gz") as output:
+        for member in source.getmembers():
+            data = source.extractfile(member).read()
+            if member.name.endswith("/aphelion"):
+                data = b"X" * len(data)
+                member.size = len(data)
+            output.addfile(member, io.BytesIO(data))
+
+    with pytest.raises(verify_release_archive.ArchiveValidationError, match="manifest file hash mismatch"):
+        verify_release_archive.validate_archive(rewritten, "linux", "0.1.0")
+
+
+def test_release_archive_validator_rejects_wrong_platform_metadata(tmp_path: Path) -> None:
+    archive = tmp_path / "package.zip"
+    make_verified_archive(archive, "windows", manifest_changes={"platform": "linux"})
+
+    with pytest.raises(verify_release_archive.ArchiveValidationError, match="wrong release metadata"):
+        verify_release_archive.validate_archive(archive, "windows", "0.1.0")
+
+
+def test_release_archive_validator_rejects_executable_sha256_mismatch(tmp_path: Path) -> None:
+    archive = tmp_path / "package.zip"
+    make_verified_archive(archive, "windows", manifest_changes={"executable_sha256": "0" * 64})
+
+    with pytest.raises(verify_release_archive.ArchiveValidationError, match="executable_sha256 mismatch"):
+        verify_release_archive.validate_archive(archive, "windows", "0.1.0")
+
+
+def test_release_archive_validator_rejects_inconsistent_sha256sums(tmp_path: Path) -> None:
+    archive = tmp_path / "package.zip"
+    make_verified_archive(archive, "windows")
+    corrupt = tmp_path / "corrupt.zip"
+    with zipfile.ZipFile(archive, "r") as source, zipfile.ZipFile(corrupt, "w") as output:
+        for info in source.infolist():
+            data = source.read(info)
+            if info.filename.endswith("/SHA256SUMS"):
+                data = ("0" * 64 + "  aphelion.exe\n"
+                        + data.decode("ascii").split("\n", 1)[1]).encode("ascii")
+            output.writestr(info, data)
+
+    with pytest.raises(verify_release_archive.ArchiveValidationError, match="SHA256SUMS hash mismatch"):
+        verify_release_archive.validate_archive(corrupt, "windows", "0.1.0")
