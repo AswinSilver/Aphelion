@@ -185,9 +185,10 @@ release announcement.
 ## Workflow verification jobs
 
 After each package is created, a separate Windows and Linux job downloads the
-Actions artifact, verifies its archive checksum, extracts it, and runs the
-version check, `examples/hello.agne`, and `examples/modules.agne` with a
-sanitized PATH. These jobs deliberately do not install the UCRT64 toolchain,
-Python, pytest, a C compiler, or the repository source. The hosted runner still
-provides the operating system's normal system libraries; this is not a VM or a
-claim for unsupported older Windows/Linux installations.
+Actions artifact, verifies its archive checksum, validates archive members and
+the manifest before extraction, then extracts it and runs the version check,
+`examples/hello.agne`, and `examples/modules.agne` with a sanitized PATH.
+These jobs deliberately do not install the UCRT64 toolchain, Python, pytest, a
+C compiler, or the repository source. The hosted runner still provides the
+operating system's normal system libraries; this is not a VM or a claim for
+unsupported older Windows/Linux installations.

@@ -24,6 +24,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -48,6 +49,12 @@ REQUIRED_EXAMPLES = (
 )
 REQUIRED_MODULES = ("lib/math.agne",)
 SYSTEM_API_SET_PREFIXES = ("api-ms-win-", "ext-ms-win-")
+
+
+def is_forbidden_windows_runtime(name: str) -> bool:
+    """Return whether *name* is an MSYS or Cygwin runtime DLL."""
+    lowered = name.casefold()
+    return lowered.endswith(".dll") and lowered.startswith(("msys", "cyg"))
 
 
 class PackageFailure(Exception):
@@ -155,7 +162,10 @@ def verify_version(executable: Path, version: str) -> None:
 
 
 def inspect_file_identity(executable: Path, mode: str, file_tool: str) -> str:
-    output = run_tool([file_tool, str(executable)], label="file")
+    # Brief output deliberately excludes the inspected path. Keeping that
+    # path out of the manifest makes equivalent packages reproducible when
+    # they are built from different checkout directories.
+    output = run_tool([file_tool, "-b", str(executable)], label="file")
     first_line = output.strip().splitlines()[0] if output.strip() else ""
     if mode == "windows":
         if ("PE32+" not in first_line or "x86-64" not in first_line or
@@ -220,7 +230,17 @@ def windows_system_roots() -> list[Path]:
         candidate = Path(value)
         if candidate.exists():
             roots.append(candidate)
-    return [root.resolve() for root in roots if root.is_dir()]
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        resolved = root.resolve()
+        key = path_key(resolved)
+        if key not in seen:
+            seen.add(key)
+            unique.append(resolved)
+    return unique
 
 
 def is_under(path: Path, directories: Iterable[Path]) -> bool:
@@ -263,12 +283,26 @@ def inspect_windows(executable: Path, objdump: str) -> list[Dependency]:
         )
         for name in imports:
             lower_name = name.casefold()
+            if is_forbidden_windows_runtime(name):
+                fail(
+                    f"forbidden MSYS/Cygwin Windows runtime dependency {name!r} "
+                    f"imported by {source_path}"
+                )
             # API-set DLLs are Windows loader contracts. They are not ordinary
             # files and are supplied by the target OS, so there is no file to
             # copy; this is identified from the import namespace, not a list of
             # guessed runtime DLL names.
             api_set = lower_name.startswith(SYSTEM_API_SET_PREFIXES)
-            resolved = None if api_set else resolve_windows(name, [source_path.parent, *search_dirs])
+            # A DLL's own directory wins, then Windows system directories,
+            # then the executable directory and PATH. Searching system roots
+            # explicitly prevents a same-named private PATH DLL from being
+            # bundled in place of an OS-provided dependency.
+            resolution_dirs = [source_path.parent]
+            resolution_dirs.extend(directory for directory in system_roots
+                                   if directory not in resolution_dirs)
+            resolution_dirs.extend(directory for directory in search_dirs
+                                   if directory not in resolution_dirs)
+            resolved = None if api_set else resolve_windows(name, resolution_dirs)
             system = api_set or (resolved is not None and is_under(resolved, system_roots))
             if resolved is None and not system:
                 fail(
@@ -359,9 +393,31 @@ def inspect_linux(executable: Path, ldd: str) -> list[Dependency]:
 
 
 def select_sources(root: Path, includes: Sequence[str]) -> list[Artifact]:
-    examples_root = root / "examples"
-    if not examples_root.is_dir():
-        fail(f"required examples directory is missing: {examples_root}")
+    root = root.resolve()
+    examples_directory = root / "examples"
+    if examples_directory.is_symlink() or not examples_directory.is_dir():
+        fail(f"required examples directory is missing: {examples_directory}")
+    examples_root = examples_directory.resolve()
+
+    def regular_example(path: Path) -> Path:
+        if path.is_symlink():
+            fail(f"selected example/module must not be a symlink: {path}")
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError as error:
+            fail(f"selected example/module cannot be resolved: {path}: {error}")
+        try:
+            resolved.relative_to(examples_root)
+        except ValueError:
+            fail(f"selected example/module is outside examples/: {path}")
+        try:
+            is_regular = stat.S_ISREG(resolved.stat().st_mode)
+        except OSError as error:
+            fail(f"selected example/module cannot be inspected: {path}: {error}")
+        if not is_regular:
+            fail(f"selected example/module is not a regular file: {path}")
+        return resolved
+
     if includes:
         paths = []
         for value in includes:
@@ -374,16 +430,22 @@ def select_sources(root: Path, includes: Sequence[str]) -> list[Artifact]:
                 paths.append(checked_relative(value, root=examples_root,
                                               description="included example/module"))
     else:
-        missing = [examples_root / value for value in (*REQUIRED_EXAMPLES, *REQUIRED_MODULES)
-                   if not (examples_root / value).is_file()]
+        required_paths = [examples_root / value
+                          for value in (*REQUIRED_EXAMPLES, *REQUIRED_MODULES)]
+        missing = [path for path in required_paths
+                   if path.is_symlink() or not path.is_file()]
         if missing:
             fail("required examples/modules are missing: " + ", ".join(str(path) for path in missing))
-        paths = sorted(path for path in examples_root.rglob("*") if path.is_file() and path.suffix == ".agne")
+        paths = []
+        for path in sorted(examples_root.rglob("*")):
+            if path.is_symlink():
+                fail(f"selected example/module must not be a symlink: {path}")
+            if path.suffix == ".agne":
+                paths.append(path)
     artifacts: list[Artifact] = []
     seen: set[str] = set()
     for path in paths:
-        if not path.is_file():
-            fail(f"selected example/module is missing: {path}")
+        path = regular_example(path)
         try:
             relative = path.relative_to(examples_root)
         except ValueError:
