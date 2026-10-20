@@ -62,7 +62,10 @@ jobs:
 
   macos:
     name: Native macOS Clang C11 and regression tests
-    runs-on: macos-latest
+    # Keep this native SDK gate on a fixed Intel macOS image. The rolling
+    # macos-latest label selected an arm64 runner where the native SDK/build
+    # gate failed; the supported release targets are not macOS.
+    runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
