@@ -91,10 +91,10 @@ jobs:
           printf '#include <stdlib.h>\n' | "$native_cc" -isysroot "$sdkroot" -std=c11 -x c - -fsyntax-only
           export SDKROOT="$sdkroot"
           gmake CC="$native_cc" PYTHON="$native_python" \
-            CPPFLAGS="-Iinclude -isysroot $sdkroot" CFLAGS= LDFLAGS= build
+            CPPFLAGS=-Iinclude CFLAGS="-isysroot $sdkroot" LDFLAGS="-isysroot $sdkroot" build
           python tools/release_smoke.py --executable "$PWD/aphelion"
           gmake CC="$native_cc" PYTHON="$native_python" \
-            CPPFLAGS="-Iinclude -isysroot $sdkroot" CFLAGS= LDFLAGS= test
+            CPPFLAGS=-Iinclude CFLAGS="-isysroot $sdkroot" LDFLAGS="-isysroot $sdkroot" test
           ./aphelion run examples/hello.agne
           cmake -S . -B "build Release" "-DCMAKE_C_COMPILER=$native_cc" \
             "-DCMAKE_OSX_SYSROOT=$sdkroot" \
