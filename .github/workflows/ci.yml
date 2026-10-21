@@ -60,57 +60,6 @@ jobs:
           done
           ctest --test-dir "build Release" -C Release --output-on-failure --no-tests=error
 
-  macos:
-    name: Native macOS Clang C11 and regression tests
-    # Keep this native SDK gate on a fixed Intel macOS image. The rolling
-    # macos-latest label selected an arm64 runner where the native SDK/build
-    # gate failed; the supported release targets are not macOS.
-    runs-on: macos-15-intel
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.x"
-      - name: Install pytest
-        run: python3 -m pip install --disable-pip-version-check pytest
-      - name: Install GNU make
-        run: brew install make
-      - name: Strict native Clang Make and CMake release gates
-        shell: bash
-        env:
-          # CI owns the complete flag set below. Do not let runner-wide
-          # CFLAGS/CPPFLAGS/LDFLAGS values arrive as one quoted argument.
-          CFLAGS: ""
-          CPPFLAGS: ""
-          LDFLAGS: ""
-        run: |
-          set -euo pipefail
-          xcode-select -p
-          sdkroot="$(xcrun --sdk macosx --show-sdk-path)"
-          test -d "$sdkroot"
-          native_cc="$(xcrun --sdk macosx --find clang)"
-          native_python="$(command -v python3)"
-          "$native_cc" --version
-          printf '#include <stdlib.h>\n' | "$native_cc" -isysroot "$sdkroot" -std=c11 -x c - -fsyntax-only
-          export SDKROOT="$sdkroot"
-          gmake CC="$native_cc" PYTHON="$native_python" \
-            CPPFLAGS=-Iinclude CFLAGS="-isysroot $sdkroot" LDFLAGS="-isysroot $sdkroot" build
-          "$native_python" tools/release_smoke.py --executable "$PWD/aphelion"
-          gmake CC="$native_cc" PYTHON="$native_python" \
-            CPPFLAGS=-Iinclude CFLAGS="-isysroot $sdkroot" LDFLAGS="-isysroot $sdkroot" test
-          ./aphelion run examples/hello.agne
-          cmake -S . -B "build Release" "-DCMAKE_C_COMPILER=$native_cc" \
-            "-DCMAKE_OSX_SYSROOT=$sdkroot" \
-            "-DPython3_EXECUTABLE=$native_python" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-          cmake --build "build Release" --config Release --parallel
-          "$native_python" tools/release_smoke.py --executable "$PWD/build Release/aphelion"
-          for binary in aphelion "build Release/aphelion"; do
-            identity="$(file -b "$binary")"
-            printf '%s: %s\n' "$binary" "$identity"
-            case "$identity" in *Mach-O*) ;; *) exit 1 ;; esac
-          done
-          ctest --test-dir "build Release" -C Release --output-on-failure --no-tests=error
-
   build-test:
     name: Strict GCC, pytest, and CLI smoke tests
     runs-on: ubuntu-latest

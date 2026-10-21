@@ -13,7 +13,7 @@ validated by the current release checks.
 **Debian/Ubuntu:** install `gcc`, `libc6-dev`, `make`, and optionally `cmake`.
 Use Python 3.10+ with pytest for development checks (a virtual environment is
 recommended).
-Exact native Windows/Linux/macOS package and CI commands are in `RELEASE_GATE.md`.
+Exact native Windows/Linux package and CI commands are in `RELEASE_GATE.md`.
 
 ```sh
 python -m pip install pytest
@@ -124,7 +124,7 @@ sample needs no terminal interaction:
 ./aphelion.exe repl < examples/repl_lines.agne
 ```
 
-Expected lines: `3`, `6`, `6`, `1`, `2`. On Linux/macOS use `./aphelion` for a
+Expected lines: `3`, `6`, `6`, `1`, `2`. On Linux use `./aphelion` for a
 Make build. See `REPL.md`, `COLLECTIONS_DESIGN.md`, `MODULES_DESIGN.md`, and
 `RELEASE_GATE.md` for boundaries and native installation/CI commands.
 
@@ -166,4 +166,4 @@ This container had intermittent ASan startup failures even for a trivial C
 program when PIE was enabled. Its verified local workaround was
 `make LDFLAGS=-no-pie sanitize` and adding `-no-pie` to
 `APHELION_TEST_CFLAGS`; do not apply this platform-specific workaround blindly
-on Windows/macOS. A passing finite test run is not a proof of memory safety.
+on Windows. A passing finite test run is not a proof of memory safety.

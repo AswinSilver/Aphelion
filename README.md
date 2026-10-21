@@ -80,19 +80,17 @@ PowerShell should expand the source list explicitly:
 gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -Iinclude (Get-ChildItem src/*.c).FullName -lm -o aphelion.exe
 ```
 
-On Linux or macOS the same command can produce `aphelion` instead of
-`aphelion.exe`. Native Windows builds use guarded Windows APIs for UTF-8
+On Linux the same command can produce `aphelion` instead of `aphelion.exe`.
+Native Windows builds use guarded Windows APIs for UTF-8
 filenames. Before distributing a Windows binary, inspect and supply any
 toolchain runtime DLLs as described in `docs/RELEASE_GATE.md`; native does not
 mean standalone.
 
-The repository also contains a GNU-make `Makefile` (use `gmake` on macOS,
-where the system `make` is BSD make) and a
+The repository also contains a GNU-make `Makefile` and a
 `CMakeLists.txt` for environments with CMake.  CMake is configured for C11 and
 does not add third-party dependencies.
 
-On Linux, use `make` for the commands below. On macOS, install GNU Make with
-`brew install make` and use `gmake` instead. On Windows, follow the native
+On Linux, use `make` for the commands below. On Windows, follow the native
 MinGW/UCRT64 instructions in `docs/RELEASE_GATE.md` and use `mingw32-make`.
 
 ```sh
@@ -195,8 +193,8 @@ GCC command above is the authoritative build check when pytest is unavailable.
 `APHELION_TEST_EXECUTABLE` tests a specified prebuilt binary. Tests include
 deterministic source/bytecode fuzzing, injected allocation failures across the C
 pipeline/loader, hostile VM streams, and bytecode read/write/execute round-trips.
-CI configures strict Linux, Windows MinGW, and macOS Clang jobs plus Linux
-sanitizers; remote CI success is not implied by the presence of the workflow.
+CI configures strict Windows MinGW and Linux jobs plus Linux sanitizers; remote
+CI success is not implied by the presence of the workflow.
 
 ```sh
 python tools/fuzz_harness.py source --executable ./aphelion --cases 500 --seed 2026

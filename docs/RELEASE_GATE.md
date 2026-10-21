@@ -1,12 +1,13 @@
-# Cross-platform release gate
+# Windows/Linux release gate
 
 Configured jobs are not evidence of successful native runs. See the current
 section of `../DEVELOPMENT_STATUS.md` for actual environment/results. A native
 Windows i686 MinGW build and a fresh x86-64 Debian WSL2 build have passed
 locally, including the latter's ASan/UBSan/leak checks. The hosted Stage 1 run
-passed the distinct UCRT64 x86-64 and Ubuntu Linux packaging jobs; the hosted
-macOS CI job still needs a successful run. No memory-safety proof or exhaustive
-fuzzing is claimed.
+passed the distinct UCRT64 x86-64 and Ubuntu Linux packaging jobs. Aphelion's
+official release targets are Windows x64 and Linux x64; macOS is not
+a release or required CI target. No memory-safety proof or exhaustive fuzzing
+is claimed.
 
 The manual Stage 1 binary packaging workflow is documented in
 [`RELEASE.md`](RELEASE.md). It consumes native artifacts only after these
@@ -88,29 +89,6 @@ ctest --test-dir build-linux -C Release --output-on-failure --no-tests=error
 Sanitizer commands and the documented container-specific PIE workaround are
 in `QUICKSTART.md`. Missing sanitizer libraries must fail, not disable checks.
 
-## macOS
-
-Install Apple's Command Line Tools with `xcode-select --install`, Homebrew's
-GNU make (`brew install make`), plus CMake and Python >=3.10 with pytest (for
-example a Python virtual environment). The checked-in Makefile uses GNU make
-syntax; macOS's system `make` is BSD make, so use the Homebrew `gmake`
-executable. The GitHub macOS image supplies Xcode/Clang and CMake; setup-python
-and pip supply the selected Python and pytest.
-
-```sh
-python -m pip install pytest
-brew install make
-gmake CC="$(xcrun --find clang)" PYTHON=python build
-gmake CC="$(xcrun --find clang)" PYTHON=python test
-python tools/release_smoke.py --executable ./aphelion
-cmake -S . -B build-macos -DCMAKE_C_COMPILER="$(xcrun --find clang)" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build build-macos --config Release --parallel
-ctest --test-dir build-macos -C Release --output-on-failure --no-tests=error
-file aphelion                  # expect native Mach-O
-```
-
-These commands/jobs are configured, not an assertion of a macOS run here.
-
 ## Run the actual GitHub gates
 
 The repository records the hosted results in `DEVELOPMENT_STATUS.md`. A future
@@ -130,7 +108,7 @@ gh run watch RUN_ID --repo OWNER/REPO --exit-status
 gh run view RUN_ID --repo OWNER/REPO --log-failed
 ```
 
-Review all four jobs: Windows MinGW, macOS Clang, Linux build/test, and Linux
+Review all three official jobs: Windows MinGW, Linux build/test, and Linux
 sanitizers. Record the run URL, commit SHA, compiler versions, test/skip counts,
 and failures in `DEVELOPMENT_STATUS.md`. Do not infer a pass from workflow YAML
 parsing, a cross-compile, a Linux binary named `.exe`, or the local source-copy

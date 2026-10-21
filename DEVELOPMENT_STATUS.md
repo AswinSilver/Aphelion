@@ -352,10 +352,10 @@ was performed because this workspace has no Git metadata/remote or `gh`.
 All five requested features and the local regression gate are complete. The
 next concrete action is to publish the reviewed source to the intended GitHub
 repository/branch and run **Actions > CI > Run workflow**, then record the run
-URL, commit SHA, compiler versions and actual four-job outcomes here. Exact
+URL, commit SHA, compiler versions and actual Windows/Linux job outcomes here. Exact
 commands/requirements are in `docs/RELEASE_GATE.md`; this requires the user's
 repository choice/access and is not a completed remote run. Address actual
-UCRT64/macOS/Linux runner failures before claiming cross-platform release.
+UCRT64/Linux runner failures before claiming a Windows/Linux release.
 Before distributing Windows binaries, also resolve and test their runtime-DLL
 packaging on a clean machine. Native Windows sanitizer libraries and Valgrind
 remain separate environment gaps. No active subagent work is left to integrate.
