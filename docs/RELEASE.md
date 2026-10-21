@@ -1,10 +1,23 @@
 # Stage 1 release packages
 
 Stage 1 produces reviewable binary packages for **Windows x64 UCRT64** and
-**Linux x64**. The version input defaults to the current CLI version, `0.1.0`.
-The package workflow is deliberately manual: select **Actions > Stage 1 release
-packages > Run workflow**, enter a version, and inspect the two resulting
+**Linux x64**. The checked-in release identity is
+[`include/aphelion/version.h`](../include/aphelion/version.h); it is consumed by
+the C CLI, release smoke test, and packager. The package workflow is
+deliberately manual: select **Actions > Stage 1 release packages > Run
+workflow**, enter the version from that header, and inspect the two resulting
 Actions artifacts before distributing them.
+
+The workflow rejects a version input that differs from the checked-in source or
+either tested binary. It remains a review-only workflow: its only outputs are
+Actions artifacts, and it does not create or push tags.
+
+## Release prerequisites
+
+Before any public distribution, the project must select and record a software
+license and include the corresponding license text and notices. Aphelion uses
+the MIT License; the complete text is in [`LICENSE`](../LICENSE). The release
+archives include that same file and the archive manifest/checksums cover it.
 
 ## Package contents
 
@@ -23,6 +36,7 @@ aphelion-VERSION-linux.tar.gz
 Each archive has one top-level directory named after the archive and contains:
 
 - `aphelion.exe` (Windows) or `aphelion` (Linux), the tested native CLI;
+- `LICENSE`, the MIT license text for the source and binary distribution;
 - the `.agne` examples, including `examples/lib/math.agne`, used by the module
   example;
 - any non-system Windows runtime files discovered for that native executable,
@@ -163,7 +177,8 @@ Get-Content .\aphelion-0.1.0-windows.zip.sha256
 After extraction, `SHA256SUMS` can be checked from the archive's top-level
 directory with a SHA-256 tool. Review `manifest.json` for the exact native
 identity, dependency inspector output, dependency classification, executable
-hash, and file list before moving the executable to a production PATH.
+hash, license entry, and file list before moving the executable to a production
+PATH.
 
 The packaging tool writes sorted archive members, normalized archive metadata,
 and stable manifest/checksum text. For a reproducibility review, record the
@@ -182,12 +197,49 @@ an installer, or upload binaries to an external distribution service. A
 successful workflow run is therefore a reviewed build result, not a public
 release announcement.
 
+## Public release workflow
+
+`.github/workflows/public-release.yml` is a separate manual workflow for a
+release that has passed review. It requires an existing exact `vX.Y.Z` tag as
+its input. The tag must resolve to the checked-out commit, and the tag version
+must match `version.h`, both native binaries, and both package manifests. The
+workflow builds and packages both supported targets, then uploads only
+reviewable Actions artifacts until the final `public-release` environment job.
+That protected job verifies the archive sidecars and creates the GitHub
+Release with `--verify-tag`; it never creates or pushes a tag. Configure branch
+and required-review protection for the `public-release` environment before
+enabling public distribution.
+
+The Stage 1 packaging jobs invoke the standard-library-only
+`tools/verify_release_archive.py` after creating each archive and before upload.
+Its interface is `MODE --archive PATH --version VERSION`. It validates the
+manifest, payload hashes and sizes, checksum coverage, exact member inventory,
+archive paths, and file metadata without extracting the archive.
+
+## Browser and antivirus warnings
+
+A browser or antivirus warning is a security signal, not proof that the
+language source, archive, or executable is malicious. The current repository
+does not contain browser-detection telemetry or a vendor verdict explaining any
+download warning. A clean third-party scan is useful evidence, but it does not
+prove harmlessness or establish why a browser blocked a file.
+
+Do not disable Safe Browsing or antivirus protections, whitelist a release as a
+workaround, or change names/extensions solely to evade detection. Preserve the
+archive and executable SHA-256 values, the exact warning text, browser/OS
+versions, download URL, and any vendor diagnostic code. Report suspected
+false positives or unexpected behavior through the process in `SECURITY.md`.
+
 ## Workflow verification jobs
 
 After each package is created, a separate Windows and Linux job downloads the
-Actions artifact, verifies its archive checksum, extracts it, and runs the
-version check, `examples/hello.agne`, and `examples/modules.agne` with a
-sanitized PATH. These jobs deliberately do not install the UCRT64 toolchain,
-Python, pytest, a C compiler, or the repository source. The hosted runner still
+Actions artifact, verifies its archive checksum, validates archive members and
+the manifest before extraction, then extracts it and runs the version check,
+`examples/hello.agne`, and `examples/modules.agne` with a sanitized PATH.
+These jobs deliberately do not install the UCRT64 toolchain, Python, pytest, a
+C compiler, or the repository source. The separate public-release verification
+jobs check out the validated commit and set up Python only because they invoke
+the standard `tools/verify_release_archive.py`; they still do not install a C
+compiler, pytest, or the development toolchain. The hosted runner still
 provides the operating system's normal system libraries; this is not a VM or a
 claim for unsupported older Windows/Linux installations.

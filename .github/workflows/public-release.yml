@@ -1,0 +1,297 @@
+name: Public release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing vX.Y.Z tag to release (the workflow never creates tags)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-tag:
+    name: Validate existing tag and release identity
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.identity.outputs.version }}
+      sha: ${{ steps.identity.outputs.sha }}
+    steps:
+      - name: Check out the requested tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+
+      - name: Validate tag, checked-out SHA, and source version
+        id: identity
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          git show-ref --verify --quiet "refs/tags/$RELEASE_TAG"
+          tag_sha="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          checkout_sha="$(git rev-parse HEAD)"
+          test "$tag_sha" = "$checkout_sha"
+          version="${RELEASE_TAG#v}"
+          source_version="$(python tools/release_version.py --print)"
+          test "$source_version" = "$version"
+          test -f LICENSE
+          test -f SECURITY.md
+          test -f CHANGELOG.md
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$checkout_sha" >> "$GITHUB_OUTPUT"
+          printf 'Validated %s at %s with source version %s\n' "$RELEASE_TAG" "$checkout_sha" "$source_version"
+
+  windows:
+    name: Build and package Windows x64
+    needs: validate-tag
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the validated tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate-tag.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Confirm the checked-out commit
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = "${{ needs.validate-tag.outputs.sha }}"
+
+      - name: Install the native UCRT64 toolchain
+        uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            file
+            make
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-make
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pytest
+
+      - name: Build, smoke-test, and package Windows
+        shell: msys2 {0}
+        env:
+          RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          test "$MSYSTEM" = UCRT64
+          test "$(gcc -dumpmachine)" = x86_64-w64-mingw32
+          native_cc="$(cygpath -m "$(command -v gcc)")"
+          native_python="$(cygpath -m "$(command -v python)")"
+          mingw32-make OS=Windows_NT CC="$native_cc" PYTHON="$native_python" CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= build
+          python tools/release_smoke.py --version "$RELEASE_VERSION" --executable "$(cygpath -m "$PWD/aphelion.exe")"
+          mingw32-make OS=Windows_NT CC="$native_cc" PYTHON="$native_python" CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= test
+          mkdir -p dist
+          python tools/release_package.py windows --version "$RELEASE_VERSION" \
+            --executable "$(cygpath -m "$PWD/aphelion.exe")" \
+            --output "$(cygpath -m "$PWD/dist/aphelion-${RELEASE_VERSION}-windows.zip")" \
+            --project-root "$(cygpath -m "$PWD")" --force
+          python tools/verify_release_archive.py windows \
+            --archive "$(cygpath -m "$PWD/dist/aphelion-${RELEASE_VERSION}-windows.zip")" \
+            --version "$RELEASE_VERSION"
+
+      - name: Upload Windows release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aphelion-${{ needs.validate-tag.outputs.version }}-windows
+          if-no-files-found: error
+          path: |
+            dist/aphelion-${{ needs.validate-tag.outputs.version }}-windows.zip
+            dist/aphelion-${{ needs.validate-tag.outputs.version }}-windows.zip.sha256
+
+  linux:
+    name: Build and package Linux x64
+    needs: validate-tag
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the validated tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate-tag.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Confirm the checked-out commit
+        run: test "$(git rev-parse HEAD)" = "${{ needs.validate-tag.outputs.sha }}"
+
+      - name: Install native inspection tools
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends --yes binutils build-essential file
+
+      - name: Set up Python and pytest
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check pytest==8.4.2
+
+      - name: Build, smoke-test, and package Linux
+        env:
+          RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          make CC=gcc PYTHON=python CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= build
+          python tools/release_smoke.py --version "$RELEASE_VERSION" --executable "$PWD/aphelion"
+          make CC=gcc PYTHON=python CPPFLAGS=-Iinclude CFLAGS= LDFLAGS= test
+          mkdir -p dist
+          python tools/release_package.py linux --version "$RELEASE_VERSION" \
+            --executable "$PWD/aphelion" --output "$PWD/dist/aphelion-${RELEASE_VERSION}-linux.tar.gz" \
+            --project-root "$PWD" --force
+          python tools/verify_release_archive.py linux \
+            --archive "$PWD/dist/aphelion-${RELEASE_VERSION}-linux.tar.gz" \
+            --version "$RELEASE_VERSION"
+
+      - name: Upload Linux release candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: aphelion-${{ needs.validate-tag.outputs.version }}-linux
+          if-no-files-found: error
+          path: |
+            dist/aphelion-${{ needs.validate-tag.outputs.version }}-linux.tar.gz
+            dist/aphelion-${{ needs.validate-tag.outputs.version }}-linux.tar.gz.sha256
+
+  windows-clean-install:
+    name: Clean Windows release smoke
+    needs: [validate-tag, windows]
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the release verifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate-tag.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python for archive verification
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Download Windows release candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: aphelion-${{ needs.validate-tag.outputs.version }}-windows
+          path: downloaded
+
+      - name: Extract and run without the development toolchain
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = Get-ChildItem downloaded -Filter "*.zip" | Select-Object -First 1
+          if ($null -eq $archive) { throw "Windows release archive was not downloaded" }
+          $sidecar = Get-Content "$($archive.FullName).sha256" -Raw
+          $expected = ($sidecar -split "\s+")[0].ToLowerInvariant()
+          $actual = (Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($expected -ne $actual) { throw "Windows archive checksum mismatch" }
+          python tools/verify_release_archive.py windows --archive $archive.FullName --version $env:RELEASE_VERSION
+          if ($LASTEXITCODE -ne 0) { throw "Windows archive structure verification failed" }
+          $install = Join-Path $PWD "installed"
+          Expand-Archive -LiteralPath $archive.FullName -DestinationPath $install
+          $root = Join-Path $install "aphelion-$env:RELEASE_VERSION-windows"
+          if (-not (Test-Path -LiteralPath $root -PathType Container)) { throw "Windows release root is missing" }
+          $env:Path = "$root;$env:SystemRoot\System32;$env:SystemRoot"
+          $version = (& (Join-Path $root "aphelion.exe") --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $version -ne "aphelion $env:RELEASE_VERSION") { throw "Windows version smoke failed: $version" }
+          $hello = (& (Join-Path $root "aphelion.exe") run (Join-Path $root "examples\hello.agne") | Out-String).TrimEnd()
+          if ($LASTEXITCODE -ne 0 -or $hello -ne "Welcome Aswin`r`nFinal score: 100") { throw "Windows hello smoke failed: $hello" }
+          $modules = (& (Join-Path $root "aphelion.exe") run (Join-Path $root "examples\modules.agne") | Out-String).TrimEnd()
+          if ($LASTEXITCODE -ne 0 -or $modules -ne "module initialized`r`n42") { throw "Windows module smoke failed: $modules" }
+
+  linux-clean-install:
+    name: Clean Linux release smoke
+    needs: [validate-tag, linux]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    steps:
+      - name: Check out the release verifier
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.validate-tag.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python for archive verification
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.11"
+
+      - name: Download Linux release candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: aphelion-${{ needs.validate-tag.outputs.version }}-linux
+          path: downloaded
+
+      - name: Extract and run without the development toolchain
+        env:
+          RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          archive="downloaded/aphelion-${RELEASE_VERSION}-linux.tar.gz"
+          (cd downloaded && sha256sum -c "$(basename "$archive").sha256")
+          python tools/verify_release_archive.py linux --archive "$archive" --version "$RELEASE_VERSION"
+          install="$PWD/installed"
+          mkdir -p "$install"
+          tar -xzf "$archive" -C "$install"
+          root="$install/aphelion-${RELEASE_VERSION}-linux"
+          test -d "$root"
+          version="$(env -i HOME="$HOME" PATH=/usr/bin:/bin "$root/aphelion" --version)"
+          test "$version" = "aphelion $RELEASE_VERSION"
+          hello="$(env -i HOME="$HOME" PATH=/usr/bin:/bin "$root/aphelion" run "$root/examples/hello.agne")"
+          test "$hello" = $'Welcome Aswin\nFinal score: 100'
+          modules="$(env -i HOME="$HOME" PATH=/usr/bin:/bin "$root/aphelion" run "$root/examples/modules.agne")"
+          test "$modules" = $'module initialized\n42'
+
+  publish:
+    name: Publish public GitHub release
+    needs: [validate-tag, windows, linux, windows-clean-install, linux-clean-install]
+    runs-on: ubuntu-22.04
+    environment:
+      name: public-release
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: aphelion-${{ needs.validate-tag.outputs.version }}-windows
+          path: dist
+
+      - name: Download Linux candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: aphelion-${{ needs.validate-tag.outputs.version }}-linux
+          path: dist
+
+      - name: Verify candidate checksums
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          sha256sum -c "aphelion-${{ needs.validate-tag.outputs.version }}-windows.zip.sha256"
+          sha256sum -c "aphelion-${{ needs.validate-tag.outputs.version }}-linux.tar.gz.sha256"
+
+      - name: Publish without creating or pushing a tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_VERSION: ${{ needs.validate-tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Aphelion $RELEASE_VERSION" --generate-notes \
+            "dist/aphelion-${RELEASE_VERSION}-windows.zip" \
+            "dist/aphelion-${RELEASE_VERSION}-windows.zip.sha256" \
+            "dist/aphelion-${RELEASE_VERSION}-linux.tar.gz" \
+            "dist/aphelion-${RELEASE_VERSION}-linux.tar.gz.sha256"

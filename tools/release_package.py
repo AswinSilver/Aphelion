@@ -24,6 +24,7 @@ import os
 from pathlib import Path, PurePosixPath
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -31,10 +32,18 @@ import tempfile
 import zipfile
 from typing import Iterable, NoReturn, Sequence
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from release_version import (
+    VERSION_PATTERN,
+    VersionFailure,
+    require_binary_version,
+    require_source_version,
+    validate_version,
+)
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCT = "aphelion"
-VERSION_PATTERN = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$")
 REQUIRED_EXAMPLES = (
     "hello.agne",
     "factorial.agne",
@@ -48,6 +57,12 @@ REQUIRED_EXAMPLES = (
 )
 REQUIRED_MODULES = ("lib/math.agne",)
 SYSTEM_API_SET_PREFIXES = ("api-ms-win-", "ext-ms-win-")
+
+
+def is_forbidden_windows_runtime(name: str) -> bool:
+    """Return whether *name* is an MSYS or Cygwin runtime DLL."""
+    lowered = name.casefold()
+    return lowered.endswith(".dll") and lowered.startswith(("msys", "cyg"))
 
 
 class PackageFailure(Exception):
@@ -155,7 +170,10 @@ def verify_version(executable: Path, version: str) -> None:
 
 
 def inspect_file_identity(executable: Path, mode: str, file_tool: str) -> str:
-    output = run_tool([file_tool, str(executable)], label="file")
+    # Brief output deliberately excludes the inspected path. Keeping that
+    # path out of the manifest makes equivalent packages reproducible when
+    # they are built from different checkout directories.
+    output = run_tool([file_tool, "-b", str(executable)], label="file")
     first_line = output.strip().splitlines()[0] if output.strip() else ""
     if mode == "windows":
         if ("PE32+" not in first_line or "x86-64" not in first_line or
@@ -220,7 +238,17 @@ def windows_system_roots() -> list[Path]:
         candidate = Path(value)
         if candidate.exists():
             roots.append(candidate)
-    return [root.resolve() for root in roots if root.is_dir()]
+    unique: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        if not root.is_dir():
+            continue
+        resolved = root.resolve()
+        key = path_key(resolved)
+        if key not in seen:
+            seen.add(key)
+            unique.append(resolved)
+    return unique
 
 
 def is_under(path: Path, directories: Iterable[Path]) -> bool:
@@ -263,12 +291,26 @@ def inspect_windows(executable: Path, objdump: str) -> list[Dependency]:
         )
         for name in imports:
             lower_name = name.casefold()
+            if is_forbidden_windows_runtime(name):
+                fail(
+                    f"forbidden MSYS/Cygwin Windows runtime dependency {name!r} "
+                    f"imported by {source_path}"
+                )
             # API-set DLLs are Windows loader contracts. They are not ordinary
             # files and are supplied by the target OS, so there is no file to
             # copy; this is identified from the import namespace, not a list of
             # guessed runtime DLL names.
             api_set = lower_name.startswith(SYSTEM_API_SET_PREFIXES)
-            resolved = None if api_set else resolve_windows(name, [source_path.parent, *search_dirs])
+            # A DLL's own directory wins, then Windows system directories,
+            # then the executable directory and PATH. Searching system roots
+            # explicitly prevents a same-named private PATH DLL from being
+            # bundled in place of an OS-provided dependency.
+            resolution_dirs = [source_path.parent]
+            resolution_dirs.extend(directory for directory in system_roots
+                                   if directory not in resolution_dirs)
+            resolution_dirs.extend(directory for directory in search_dirs
+                                   if directory not in resolution_dirs)
+            resolved = None if api_set else resolve_windows(name, resolution_dirs)
             system = api_set or (resolved is not None and is_under(resolved, system_roots))
             if resolved is None and not system:
                 fail(
@@ -359,9 +401,33 @@ def inspect_linux(executable: Path, ldd: str) -> list[Dependency]:
 
 
 def select_sources(root: Path, includes: Sequence[str]) -> list[Artifact]:
-    examples_root = root / "examples"
-    if not examples_root.is_dir():
-        fail(f"required examples directory is missing: {examples_root}")
+    root = root.resolve()
+    examples_directory = root / "examples"
+    if examples_directory.is_symlink() or not examples_directory.is_dir():
+        fail(f"required examples directory is missing: {examples_directory}")
+    examples_root = examples_directory.resolve()
+
+    def regular_example(path: Path) -> Path:
+        if path.is_symlink():
+            fail(f"selected example/module must not be a symlink: {path}")
+        if path.suffix != ".agne":
+            fail(f"selected example/module must use the .agne extension: {path}")
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError as error:
+            fail(f"selected example/module cannot be resolved: {path}: {error}")
+        try:
+            resolved.relative_to(examples_root)
+        except ValueError:
+            fail(f"selected example/module is outside examples/: {path}")
+        try:
+            is_regular = stat.S_ISREG(resolved.stat().st_mode)
+        except OSError as error:
+            fail(f"selected example/module cannot be inspected: {path}: {error}")
+        if not is_regular:
+            fail(f"selected example/module is not a regular file: {path}")
+        return resolved
+
     if includes:
         paths = []
         for value in includes:
@@ -374,16 +440,22 @@ def select_sources(root: Path, includes: Sequence[str]) -> list[Artifact]:
                 paths.append(checked_relative(value, root=examples_root,
                                               description="included example/module"))
     else:
-        missing = [examples_root / value for value in (*REQUIRED_EXAMPLES, *REQUIRED_MODULES)
-                   if not (examples_root / value).is_file()]
+        required_paths = [examples_root / value
+                          for value in (*REQUIRED_EXAMPLES, *REQUIRED_MODULES)]
+        missing = [path for path in required_paths
+                   if path.is_symlink() or not path.is_file()]
         if missing:
             fail("required examples/modules are missing: " + ", ".join(str(path) for path in missing))
-        paths = sorted(path for path in examples_root.rglob("*") if path.is_file() and path.suffix == ".agne")
+        paths = []
+        for path in sorted(examples_root.rglob("*")):
+            if path.is_symlink():
+                fail(f"selected example/module must not be a symlink: {path}")
+            if path.suffix == ".agne":
+                paths.append(path)
     artifacts: list[Artifact] = []
     seen: set[str] = set()
     for path in paths:
-        if not path.is_file():
-            fail(f"selected example/module is missing: {path}")
+        path = regular_example(path)
         try:
             relative = path.relative_to(examples_root)
         except ValueError:
@@ -396,6 +468,18 @@ def select_sources(root: Path, includes: Sequence[str]) -> list[Artifact]:
     if not artifacts:
         fail("no examples/modules were selected")
     return sorted(artifacts, key=lambda item: item.archive_path)
+
+
+def select_license(root: Path) -> Artifact:
+    path = root / "LICENSE"
+    if path.is_symlink() or not path.is_file():
+        fail(f"required MIT license file is missing or not a regular file: {path}")
+    try:
+        if not stat.S_ISREG(path.stat().st_mode):
+            fail(f"required MIT license file is not a regular file: {path}")
+    except OSError as error:
+        fail(f"required MIT license file cannot be inspected: {path}: {error}")
+    return Artifact(path.resolve(), "LICENSE", "license")
 
 
 def dependency_artifacts(dependencies: Sequence[Dependency]) -> list[Artifact]:
@@ -550,8 +634,10 @@ def verify_archive(output: Path, mode: str,
 
 def package(mode: str, version: str, output: Path, executable: Path,
             root: Path, includes: Sequence[str], force: bool) -> Path:
-    if not VERSION_PATTERN.fullmatch(version):
-        fail(f"invalid version {version!r}; expected a dotted version such as 0.1.0")
+    try:
+        validate_version(version)
+    except VersionFailure as error:
+        fail(str(error))
     executable = require_executable(executable)
     expected_executable_name = "aphelion.exe" if mode == "windows" else "aphelion"
     if executable.name.casefold() != expected_executable_name.casefold():
@@ -562,6 +648,13 @@ def package(mode: str, version: str, output: Path, executable: Path,
     root = root.resolve()
     if not root.is_dir():
         fail(f"project root is not a directory: {root}")
+    version_source = root / "include" / "aphelion" / "version.h"
+    has_version_source = version_source.is_file()
+    if has_version_source:
+        try:
+            require_source_version(version, source=version_source)
+        except VersionFailure as error:
+            fail(str(error))
     output = output.expanduser().resolve()
     expected_suffix = ".zip" if mode == "windows" else ".tar.gz"
     if not str(output).lower().endswith(expected_suffix):
@@ -573,7 +666,13 @@ def package(mode: str, version: str, output: Path, executable: Path,
 
     file_tool = required_tool("file")
     identity = inspect_file_identity(executable, mode, file_tool)
-    verify_version(executable, version)
+    try:
+        if has_version_source:
+            require_binary_version(version, executable, source=version_source)
+        else:
+            verify_version(executable, version)
+    except VersionFailure as error:
+        fail(str(error))
     if mode == "windows":
         dependencies = inspect_windows(executable, required_tool("objdump"))
     else:
@@ -582,6 +681,7 @@ def package(mode: str, version: str, output: Path, executable: Path,
     root_name = f"{PRODUCT}-{version}-{mode}"
     executable_name = executable.name
     executable_artifact = Artifact(executable, executable_name, "native executable")
+    license_artifact = select_license(root)
     source_artifacts = select_sources(root, includes)
     runtime_artifacts = dependency_artifacts(dependencies)
     if mode == "linux" and runtime_artifacts:
@@ -590,7 +690,7 @@ def package(mode: str, version: str, output: Path, executable: Path,
             "packaging requires a verified RPATH/launcher before those files "
             "can be distributed safely"
         )
-    artifacts = [executable_artifact, *runtime_artifacts, *source_artifacts]
+    artifacts = [executable_artifact, license_artifact, *runtime_artifacts, *source_artifacts]
     archive_paths = [item.archive_path for item in artifacts]
     if len(archive_paths) != len(set(archive_paths)):
         fail("executable and runtime artifacts have colliding archive names")

@@ -1,5 +1,26 @@
 # Aphelion development status
 
+## Stage 1 hosted packaging result — 2026-10-20
+
+GitHub Actions run [39384920685](https://github.com/AswinSilver/Aphelion/actions/runs/39384920685)
+completed successfully for commit `c371b09e8871c05ce7c97f4a1305bcd7fdd2fad8`
+on `stage1-packaging-review`. The Windows x64 UCRT64 package, Linux x64
+glibc-2.35-targeted package, and both clean-install smoke jobs passed. The
+Actions artifact digests were:
+
+```text
+aphelion-0.1.0-windows-x64-ucrt64: sha256:8d2ba4a901d054ff73b71ee516939f94ac6d61901131a1130102c998d6027394
+aphelion-0.1.0-linux-x64-glibc235:  sha256:5a7b0f29199fcba3201d1dceaae9d16fb2b40a2431ca392d29aed8b156d0da12
+```
+
+These are outer GitHub Actions artifact digests, not the inner package archive
+sidecar hashes. The artifacts expire under the Actions retention policy. The
+same commit's normal CI run had a failed macOS job; macOS is not a supported
+Stage 1 release target. The review branch now records the MIT License in the
+root `LICENSE` file and requires it in packaged archives. Public release remains
+blocked until release provenance/signing and the protected tagged publication
+workflow are reviewed.
+
 ## Current state — essential builtins and five-feature release gate locally complete
 
 Final local verification on 2026-10-19 passed after implementing builtins,
@@ -331,10 +352,10 @@ was performed because this workspace has no Git metadata/remote or `gh`.
 All five requested features and the local regression gate are complete. The
 next concrete action is to publish the reviewed source to the intended GitHub
 repository/branch and run **Actions > CI > Run workflow**, then record the run
-URL, commit SHA, compiler versions and actual four-job outcomes here. Exact
+URL, commit SHA, compiler versions and actual Windows/Linux job outcomes here. Exact
 commands/requirements are in `docs/RELEASE_GATE.md`; this requires the user's
 repository choice/access and is not a completed remote run. Address actual
-UCRT64/macOS/Linux runner failures before claiming cross-platform release.
+UCRT64/Linux runner failures before claiming a Windows/Linux release.
 Before distributing Windows binaries, also resolve and test their runtime-DLL
 packaging on a clean machine. Native Windows sanitizer libraries and Valgrind
 remain separate environment gaps. No active subagent work is left to integrate.

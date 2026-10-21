@@ -11,9 +11,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SMOKE = ROOT / "tools" / "release_smoke.py"
 
 
-def run_smoke(executable: Path, directory: Path) -> subprocess.CompletedProcess[str]:
+def run_smoke(
+    executable: Path, directory: Path, version: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    command = [sys.executable, str(SMOKE)]
+    if version is not None:
+        command.extend(["--version", version])
+    command.extend(["--executable", str(executable)])
     return subprocess.run(
-        [sys.executable, str(SMOKE), "--executable", str(executable)],
+        command,
         cwd=directory, capture_output=True, text=True, encoding="utf-8",
         timeout=120, check=False,
     )
@@ -48,6 +54,14 @@ def test_wrong_native_binary_fails_with_captured_output(tmp_path: Path) -> None:
     assert "expected stdout" in result.stderr
     assert "Python " in result.stderr
     assert "Release smoke passed" not in result.stdout
+
+
+def test_release_input_must_match_checked_in_version(
+    aphelion_executable: Path, tmp_path: Path,
+) -> None:
+    result = run_smoke(aphelion_executable, tmp_path, version="9.9.9")
+    assert result.returncode == 1
+    assert "version mismatch" in result.stderr
 
 
 def test_timeout_reports_failure_and_cleans_temporary_files(tmp_path, monkeypatch, capsys):

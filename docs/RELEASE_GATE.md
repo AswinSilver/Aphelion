@@ -1,16 +1,27 @@
-# Cross-platform release gate
+# Windows/Linux release gate
 
 Configured jobs are not evidence of successful native runs. See the current
 section of `../DEVELOPMENT_STATUS.md` for actual environment/results. A native
 Windows i686 MinGW build and a fresh x86-64 Debian WSL2 build have passed
-locally, including the latter's ASan/UBSan/leak checks. The distinct UCRT64
-x86-64, macOS, and GitHub Linux jobs still need execution. No memory-safety
-proof or exhaustive fuzzing is claimed.
+locally, including the latter's ASan/UBSan/leak checks. The hosted Stage 1 run
+passed the distinct UCRT64 x86-64 and Ubuntu Linux packaging jobs. Aphelion's
+official release targets are Windows x64 and Linux x64; macOS is not
+a release or required CI target. No memory-safety proof or exhaustive fuzzing
+is claimed.
 
 The manual Stage 1 binary packaging workflow is documented in
 [`RELEASE.md`](RELEASE.md). It consumes native artifacts only after these
 build/smoke/dependency gates and creates review-only Actions artifacts; it does
 not create a GitHub Release or publish packages.
+
+The separate `public-release.yml` workflow is manual and requires an existing
+`vX.Y.Z` tag. It validates the tag's commit SHA and version against
+`include/aphelion/version.h` and the tested binaries, builds both supported
+targets, and only creates a public GitHub Release from the protected
+`public-release` environment job. It never pushes tags. Configure that
+environment's required reviewers before using the workflow. The repository
+uses the MIT License in the root `LICENSE` file; the release packager requires
+that file and includes it in every archive's manifest and checksum set.
 
 ## Native Windows (MSYS2 UCRT64)
 
@@ -78,36 +89,13 @@ ctest --test-dir build-linux -C Release --output-on-failure --no-tests=error
 Sanitizer commands and the documented container-specific PIE workaround are
 in `QUICKSTART.md`. Missing sanitizer libraries must fail, not disable checks.
 
-## macOS
-
-Install Apple's Command Line Tools with `xcode-select --install`, Homebrew's
-GNU make (`brew install make`), plus CMake and Python >=3.10 with pytest (for
-example a Python virtual environment). The checked-in Makefile uses GNU make
-syntax; macOS's system `make` is BSD make, so use the Homebrew `gmake`
-executable. The GitHub macOS image supplies Xcode/Clang and CMake; setup-python
-and pip supply the selected Python and pytest.
-
-```sh
-python -m pip install pytest
-brew install make
-gmake CC="$(xcrun --find clang)" PYTHON=python build
-gmake CC="$(xcrun --find clang)" PYTHON=python test
-python tools/release_smoke.py --executable ./aphelion
-cmake -S . -B build-macos -DCMAKE_C_COMPILER="$(xcrun --find clang)" -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
-cmake --build build-macos --config Release --parallel
-ctest --test-dir build-macos -C Release --output-on-failure --no-tests=error
-file aphelion                  # expect native Mach-O
-```
-
-These commands/jobs are configured, not an assertion of a macOS run here.
-
 ## Run the actual GitHub gates
 
-This workspace currently has no `.git`, remote, or `gh`, so a remote run cannot
-be dispatched here. Publish the reviewed source and `.github/workflows/ci.yml`
-to the intended GitHub repository/branch; do not publish generated binaries,
-private `.omnirush` state, credentials, or temporary reports. This session has
-not committed, initialized a repository, or pushed anything.
+The repository records the hosted results in `DEVELOPMENT_STATUS.md`. A future
+remote run requires an authenticated GitHub account and explicit approval; do
+not publish generated binaries, private `.omnirush` state, credentials, or
+temporary reports. This local review does not dispatch workflows or publish
+anything.
 
 On GitHub, select **Actions > CI > Run workflow**, choose that branch, and run
 it. `workflow_dispatch` must be available on the repository's default branch.
@@ -120,7 +108,7 @@ gh run watch RUN_ID --repo OWNER/REPO --exit-status
 gh run view RUN_ID --repo OWNER/REPO --log-failed
 ```
 
-Review all four jobs: Windows MinGW, macOS Clang, Linux build/test, and Linux
+Review all three official jobs: Windows MinGW, Linux build/test, and Linux
 sanitizers. Record the run URL, commit SHA, compiler versions, test/skip counts,
 and failures in `DEVELOPMENT_STATUS.md`. Do not infer a pass from workflow YAML
 parsing, a cross-compile, a Linux binary named `.exe`, or the local source-copy
