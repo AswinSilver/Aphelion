@@ -54,6 +54,7 @@ REQUIRED_EXAMPLES = (
     "traverse.agne",
     "repl_lines.agne",
     "modules.agne",
+    "acsl_demo.agne",
 )
 REQUIRED_MODULES = ("lib/math.agne",)
 SYSTEM_API_SET_PREFIXES = ("api-ms-win-", "ext-ms-win-")

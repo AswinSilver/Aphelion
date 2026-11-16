@@ -26,6 +26,7 @@ jobs:
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-python-pytest
+            mingw-w64-ucrt-x86_64-openssl
       - name: Strict native UCRT64 Make and CMake release gates
         shell: msys2 {0}
         env:
@@ -75,6 +76,11 @@ jobs:
       - name: Install pytest
         run: python -m pip install --disable-pip-version-check pytest
 
+      - name: Install OpenSSL development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libssl-dev
+
       - name: Build with strict GCC
         run: |
           gcc --version
@@ -122,6 +128,11 @@ jobs:
 
       - name: Install pytest
         run: python -m pip install --disable-pip-version-check pytest
+
+      - name: Install OpenSSL development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libssl-dev
 
       - name: Build the sanitizer target
         run: |

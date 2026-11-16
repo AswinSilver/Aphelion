@@ -98,6 +98,26 @@ def smoke(executable: Path, expected_version: str | None = None) -> int:
             runner.run("run", str(source), stdout=expected)
             runner.run("check", str(source), stdout=f"{source}: valid\n")
 
+        # The packaged binary must be able to load its crypto runtime and run
+        # the native module without any development files present.
+        crypto = directory / "crypto.agne"
+        crypto.write_text(
+            'summon acsl\n'
+            'forge key = acsl.key_from_hex("'
+            '000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")\n'
+            'reveal(acsl.sha256_hex("abc"))\n'
+            'reveal(acsl.decrypt(acsl.encrypt("smoke", key), key))\n',
+            encoding="utf-8",
+        )
+        runner.run(
+            "run", str(crypto),
+            stdout="ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\n"
+                   "smoke\n",
+        )
+        crypto_bytecode = crypto.with_suffix(".apb")
+        runner.run("compile", str(crypto), stdout=f"{crypto_bytecode}\n")
+        runner.run("disasm", str(crypto_bytecode), contains=("NATIVE_CALL",))
+
         practical = directory / "builtins_practical.agne"
         practical.write_bytes((ROOT / "examples" / practical.name).read_bytes())
         practical_output = "Hello Ada\n3\nwhole\n7 items\n5\n7\n"
