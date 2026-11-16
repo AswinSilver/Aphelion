@@ -6,6 +6,12 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 set(APHELION_SOURCES
+    src/acsl.c
+    src/acsl_argon2.c
+    src/acsl_cipher.c
+    src/acsl_hash.c
+    src/acsl_key.c
+    src/acsl_random.c
     src/ast.c
     src/bytecode.c
     src/compiler.c
@@ -20,11 +26,15 @@ set(APHELION_SOURCES
     src/vm.c
 )
 
+find_package(OpenSSL 3.0 REQUIRED COMPONENTS Crypto)
+
 add_executable(aphelion ${APHELION_SOURCES})
 target_compile_features(aphelion PRIVATE c_std_11)
 target_include_directories(aphelion PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/argon2/include"
 )
+target_link_libraries(aphelion PRIVATE OpenSSL::Crypto)
 set_target_properties(aphelion PROPERTIES
     C_STANDARD 11
     C_STANDARD_REQUIRED YES

@@ -8,11 +8,14 @@ inside the language; Python is needed only for development tests and fuzzing.
 **Windows 11:** install a MinGW-w64 GCC toolchain (for example MSYS2 UCRT64),
 put its `bin` directory on PATH, and open its terminal in this project. For
 Make/CMake use their MinGW-compatible versions. MSVC and macOS builds are not
-validated by the current release checks.
+validated by the current release checks. Install OpenSSL development files from
+the same MSYS2 prefix (`mingw-w64-ucrt-x86_64-openssl`); the ACSL cryptography
+module links `libcrypto`.
 
-**Debian/Ubuntu:** install `gcc`, `libc6-dev`, `make`, and optionally `cmake`.
-Use Python 3.10+ with pytest for development checks (a virtual environment is
-recommended).
+**Debian/Ubuntu:** install `gcc`, `libc6-dev`, `libssl-dev` (OpenSSL 3.x), `make`,
+and optionally `cmake`. Use Python 3.10+ with pytest for development checks (a
+virtual environment is recommended). Argon2 is vendored in `third_party/argon2`,
+so no Argon2 package is required.
 Exact native Windows/Linux package and CI commands are in `RELEASE_GATE.md`.
 
 ```sh
@@ -24,14 +27,15 @@ python -m pip install pytest
 From the project root, the original direct workflow still works:
 
 ```sh
-gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -Iinclude src/*.c -lm -o aphelion.exe
+gcc -std=c11 -Wall -Wextra -Wpedantic -Werror \
+    -Iinclude -Ithird_party/argon2/include src/*.c -lcrypto -o aphelion.exe
 ```
 
 In PowerShell, which does not expand wildcards for every native compiler,
 expand the source list explicitly, or use the Make/CMake alternatives below:
 
 ```powershell
-gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -Iinclude (Get-ChildItem src/*.c).FullName -lm -o aphelion.exe
+gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -Iinclude -Ithird_party/argon2/include (Get-ChildItem src/*.c).FullName -lcrypto -o aphelion.exe
 ```
 
 On Linux, naming the output `aphelion` instead of `aphelion.exe` is conventional.

@@ -306,6 +306,24 @@ def test_windows_system_root_wins_over_same_named_path_dll(
     assert release_package.dependency_artifacts(dependencies) == []
 
 
+def test_windows_bundles_resolved_non_system_import(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executable, _system32, private = windows_fixture(tmp_path, monkeypatch)
+    crypto = private / "libcrypto-3-x64.dll"
+    crypto.write_bytes(b"crypto runtime")
+    fake_objdump(monkeypatch, {"aphelion.exe": ["libcrypto-3-x64.dll"]})
+
+    dependencies = release_package.inspect_windows(executable, "objdump")
+    artifacts = release_package.dependency_artifacts(dependencies)
+    entry = next(item for item in dependencies if item.name == "libcrypto-3-x64.dll")
+
+    assert entry.system is False
+    assert entry.resolved == crypto.resolve()
+    assert [item.archive_path for item in artifacts] == ["libcrypto-3-x64.dll"]
+    assert artifacts[0].source == crypto.resolve()
+
+
 def test_default_examples_reject_non_regular_files(tmp_path: Path) -> None:
     examples = make_examples(tmp_path)
     (examples / "not-a-file.agne").mkdir()

@@ -3,6 +3,7 @@
 import os
 import re
 import shlex
+import shutil
 import subprocess
 from functools import wraps
 from pathlib import Path
@@ -125,6 +126,94 @@ def math_libraries():
     return [] if WINDOWS else ["-lm"]
 
 
+OPENSSL_HEADER = Path("include") / "openssl" / "evp.h"
+
+
+def _has_openssl_headers(root):
+    return (root / OPENSSL_HEADER).is_file()
+
+
+def openssl_root():
+    """Locate an OpenSSL prefix the test builds can compile and link against.
+
+    Windows builds link against a MinGW/MSYS2 prefix rather than a system
+    directory, so discover one from the environment or the compiler location.
+    POSIX builds use the system default search path and return ``None``.
+    """
+    for variable in ("APHELION_OPENSSL_ROOT", "OPENSSL_ROOT_DIR"):
+        override = os.environ.get(variable)
+        if override is not None:
+            assert override, f"{variable} is empty"
+            root = Path(override)
+            assert _has_openssl_headers(root), (
+                f"{variable} does not contain {OPENSSL_HEADER.as_posix()}: {root}")
+            return root
+    if not WINDOWS:
+        return None
+    candidates = []
+    prefix = os.environ.get("MINGW_PREFIX")
+    if prefix:
+        candidates.append(Path(prefix))
+    compiler = shutil.which(compiler_command()[0])
+    if compiler:
+        # C:/msys64/ucrt64/bin/gcc.exe -> C:/msys64/ucrt64
+        candidates.append(Path(compiler).resolve().parent.parent)
+    for fallback in ("C:/mingw32/opt", "C:/msys64/ucrt64", "C:/msys64/mingw64",
+                     "C:/msys64/clang64"):
+        candidates.append(Path(fallback))
+    for candidate in candidates:
+        if _has_openssl_headers(candidate):
+            return candidate
+    return None
+
+
+def crypto_include_flags():
+    """Include paths for the vendored Argon2 headers and OpenSSL headers."""
+    override = os.environ.get("APHELION_CRYPTO_CFLAGS")
+    if override is not None:
+        return split_arguments(override)
+    flags = [f"-I{ROOT / 'third_party' / 'argon2' / 'include'}"]
+    root = openssl_root()
+    if root is not None:
+        flags.append(f"-I{root / 'include'}")
+    return flags
+
+
+def crypto_libraries():
+    """Link flags for the OpenSSL libcrypto runtime used by ACSL."""
+    override = os.environ.get("APHELION_CRYPTO_LIBS")
+    if override is not None:
+        return split_arguments(override)
+    libraries = []
+    root = openssl_root()
+    if root is not None and (root / "lib").is_dir():
+        libraries.append(f"-L{root / 'lib'}")
+    libraries.append("-lcrypto")
+    return libraries
+
+
+def acsl_sources():
+    """Every ACSL translation unit, for fixtures that link the VM directly."""
+    return sorted((ROOT / "src").glob("acsl*.c"))
+
+
+def ensure_crypto_runtime_path():
+    """Expose the discovered OpenSSL DLL directory to child processes."""
+    root = openssl_root()
+    if root is None:
+        return
+    binaries = root / "bin"
+    if not binaries.is_dir():
+        return
+    entries = [str(binaries)]
+    entries.extend(entry for entry in os.environ.get("PATH", "").split(os.pathsep)
+                   if entry and Path(entry) != binaries)
+    os.environ["PATH"] = os.pathsep.join(entries)
+
+
+ensure_crypto_runtime_path()
+
+
 @pytest.fixture(scope="session")
 def aphelion_executable(tmp_path_factory):
     supplied = os.environ.get("APHELION_TEST_EXECUTABLE")
@@ -136,8 +225,9 @@ def aphelion_executable(tmp_path_factory):
     output = tmp_path_factory.mktemp("build") / native_executable_name("aphelion")
     command = [*compiler_command(), "-std=c11", "-Wall", "-Wextra", "-Wpedantic",
                "-Werror", *test_cflags(), f"-I{ROOT / 'include'}",
+               *crypto_include_flags(),
                *(str(p) for p in sorted((ROOT / "src").glob("*.c"))),
-               *math_libraries(), "-o", str(output)]
+               *math_libraries(), *crypto_libraries(), "-o", str(output)]
     result = subprocess.run(command, cwd=ROOT, capture_output=True,
                             text=True, encoding="utf-8", timeout=120)
     assert result.returncode == 0, f"build failed:\n{result.stdout}\n{result.stderr}"

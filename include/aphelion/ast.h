@@ -86,7 +86,8 @@ typedef enum AstExprKind {
     AST_EXPR_ASSIGN,
     AST_EXPR_GROUP,
     AST_EXPR_LIST,
-    AST_EXPR_INDEX
+    AST_EXPR_INDEX,
+    AST_EXPR_MEMBER
 } AstExprKind;
 
 typedef enum AstUnaryOp {
@@ -177,6 +178,11 @@ struct AstExpr {
             AstExpr *target;
             AstExpr *index;
         } index;
+        struct {
+            AstExpr *target;
+            char *name;
+            int native_index; /* resolved native function, or -1 */
+        } member;
     } as;
 };
 
@@ -279,12 +285,16 @@ typedef struct AstTopLevel {
     } as;
 } AstTopLevel;
 
+/* Native modules are linked by the runtime, not loaded from .agne files. */
+#define APHELION_NATIVE_MODULE_ACSL 0x1u
+
 typedef struct AstProgram {
     char *filename;
     AstTopLevel *items;
     size_t item_count;
     size_t item_capacity;
     bool had_parse_error;
+    unsigned native_modules; /* APHELION_NATIVE_MODULE_* bits */
     char **source_files; /* owned canonical filenames borrowed by linked spans */
     size_t source_file_count;
     size_t source_file_capacity;

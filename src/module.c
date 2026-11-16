@@ -9,6 +9,7 @@
 #endif
 
 #include "aphelion/module.h"
+#include "aphelion/native.h"
 #include "aphelion/parser.h"
 
 #include <errno.h>
@@ -374,6 +375,12 @@ static bool resolve_import(ModuleLoader *loader, const AstStmt *statement,
     size_t i;
     AstProgram *program;
     SourceLocation location = statement->span.start;
+    unsigned native_flag = aphelion_native_module_flag_n(
+        statement->as.summon.path, length);
+    if (native_flag != 0u) {
+        loader->result->native_modules |= native_flag;
+        return true;
+    }
     if (!valid_name(statement->as.summon.path, length)) {
         module_error(loader, location, "invalid module path: expected slash-separated identifier segments without a suffix");
         return false;
@@ -472,12 +479,41 @@ AstProgram *aphelion_module_parse(const char *filename, const char *source,
     char *canonical;
     size_t i, root_length;
     bool has_import = false;
+    bool has_file_import = false;
     if (result == NULL || result->had_parse_error) return result;
     for (i = 0u; i < result->item_count; ++i) {
         if (result->items[i].kind == AST_TOP_EXPRESSION &&
-            result->items[i].as.statement->kind == AST_STMT_SUMMON) has_import = true;
+            result->items[i].as.statement->kind == AST_STMT_SUMMON) {
+            unsigned native_flag = aphelion_native_module_flag_n(
+                result->items[i].as.statement->as.summon.path,
+                result->items[i].as.statement->as.summon.path_length);
+            has_import = true;
+            if (native_flag != 0u) {
+                result->native_modules |= native_flag;
+            } else {
+                has_file_import = true;
+            }
+        }
     }
     if (!has_import) return result;
+    if (!has_file_import) {
+        /* A program that only imports native modules needs no filesystem
+         * resolution.  Remove the summon items so the compiler never sees an
+         * unresolved import. */
+        size_t out = 0u;
+        for (i = 0u; i < result->item_count; ++i) {
+            AstTopLevel *item = &result->items[i];
+            if (item->kind == AST_TOP_EXPRESSION &&
+                item->as.statement != NULL &&
+                item->as.statement->kind == AST_STMT_SUMMON) {
+                ast_stmt_free(item->as.statement);
+            } else {
+                result->items[out++] = *item;
+            }
+        }
+        result->item_count = out;
+        return result;
+    }
     memset(&loader, 0, sizeof(loader));
     loader.result = result;
     loader.diagnostics = diagnostics;

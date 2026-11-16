@@ -11,7 +11,15 @@ PYTHON ?= python
 CC_COMMAND = $(subst \,/,$(CC))
 PYTHON_COMMAND = $(subst \,/,$(PYTHON))
 
-CPPFLAGS += -Iinclude
+# OpenSSL provides hashing, HMAC, AEAD ciphers, and PBKDF2.  The documented
+# toolchains put its headers and libcrypto on the default search path; set
+# OPENSSL_CFLAGS/OPENSSL_LIBS to point at a custom prefix.
+OPENSSL_CFLAGS ?=
+OPENSSL_LIBS ?= -lcrypto
+
+# `override` keeps the vendored Argon2 and OpenSSL include paths when CI passes
+# CPPFLAGS on the command line (command-line values otherwise replace +=).
+override CPPFLAGS += -Iinclude -Ithird_party/argon2/include $(OPENSSL_CFLAGS)
 override CFLAGS += -std=c11 -Wall -Wextra -Wpedantic -Werror
 LDFLAGS ?=
 
@@ -27,6 +35,7 @@ EXEEXT ?=
 LDLIBS ?=
 LDLIBS += -lm
 endif
+LDLIBS += $(OPENSSL_LIBS)
 
 SOURCES := $(sort $(wildcard src/*.c))
 OBJECTS := $(SOURCES:.c=.o)

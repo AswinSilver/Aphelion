@@ -257,6 +257,7 @@ static const char *expr_kind_name(AstExprKind kind) {
     case AST_EXPR_GROUP: return "group";
     case AST_EXPR_LIST: return "list";
     case AST_EXPR_INDEX: return "index";
+    case AST_EXPR_MEMBER: return "member";
     default: return "expression";
     }
 }
@@ -392,6 +393,13 @@ static void print_expr(const AstExpr *expression, size_t depth) {
         print_expr(expression->as.assignment.value, depth + 1u);
         break;
     case AST_EXPR_GROUP: print_expr(expression->as.group.inner, depth + 1u); break;
+    case AST_EXPR_MEMBER:
+        print_indent(depth + 1u);
+        (void)fprintf(stdout, "%s\n",
+                      expression->as.member.name != NULL
+                          ? expression->as.member.name : "<unnamed>");
+        print_expr(expression->as.member.target, depth + 1u);
+        break;
     case AST_EXPR_LITERAL:
     case AST_EXPR_NAME:
         break;

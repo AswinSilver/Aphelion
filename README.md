@@ -48,6 +48,9 @@ The checked-in release identity is `include/aphelion/version.h`. Version
   semantics, nested loops, `escape`, and advancing `skip`.
 - Root-relative `summon "lib/math"` source modules with checked canonical paths,
   cycle detection, once-only initialization, and self-contained bytecode.
+- Compiled-in native modules: `summon acsl` imports the Aphelion Cryptography
+  Security Library (SHA-2/SHA-3, HMAC, AES-256-GCM, ChaCha20-Poly1305,
+  CSPRNG, Argon2id, PBKDF2).  See [`docs/ACSL.md`](docs/ACSL.md).
 - A real one-line, fresh-scope `repl` with compiler-driven expression echo,
   bounded input, error recovery, terminal prompts, and clean EOF/quit behavior.
 - A practical builtin example combining `receive`, checked conversions,
@@ -67,28 +70,34 @@ They are listed as future work rather than being accepted as fake syntax.
 
 ### GCC / MinGW
 
-Builds need a C11 compiler and its platform SDK/C runtime, not another language
-runtime. From the project root in Git Bash/MSYS2 or a POSIX shell:
+Builds need a C11 compiler, its platform SDK/C runtime, and OpenSSL 3.x
+development files (headers plus `libcrypto`); Argon2 is vendored under
+`third_party/argon2`.  From the project root in Git Bash/MSYS2 or a POSIX shell:
 
 ```sh
-gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -Iinclude src/*.c -lm -o aphelion.exe
+gcc -std=c11 -Wall -Wextra -Wpedantic -Werror \
+    -Iinclude -Ithird_party/argon2/include src/*.c -lcrypto -o aphelion.exe
 ```
 
 PowerShell should expand the source list explicitly:
 
 ```powershell
-gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -Iinclude (Get-ChildItem src/*.c).FullName -lm -o aphelion.exe
+gcc -std=c11 -Wall -Wextra -Wpedantic -Werror -Iinclude -Ithird_party/argon2/include (Get-ChildItem src/*.c).FullName -lcrypto -o aphelion.exe
 ```
 
 On Linux the same command can produce `aphelion` instead of `aphelion.exe`.
 Native Windows builds use guarded Windows APIs for UTF-8
 filenames. Before distributing a Windows binary, inspect and supply any
 toolchain runtime DLLs as described in `docs/RELEASE_GATE.md`; native does not
-mean standalone.
+mean standalone.  A Windows package must also ship `libcrypto-3-x64.dll`; on
+Linux the system `libcrypto.so.3` is used.  See `docs/ACSL.md` for the crypto
+runtime requirements.
 
 The repository also contains a GNU-make `Makefile` and a
-`CMakeLists.txt` for environments with CMake.  CMake is configured for C11 and
-does not add third-party dependencies.
+`CMakeLists.txt` for environments with CMake.  Both expect OpenSSL 3.x in the
+toolchain's default search path (override with `OPENSSL_CFLAGS`/`OPENSSL_LIBS`
+for Make or `OpenSSL_ROOT_DIR` for CMake) and compile the vendored Argon2
+source.
 
 On Linux, use `make` for the commands below. On Windows, follow the native
 MinGW/UCRT64 instructions in `docs/RELEASE_GATE.md` and use `mingw32-make`.
@@ -187,12 +196,15 @@ python -m pip install pytest
 python -m pytest -q
 ```
 
-The test suite requires Python 3.10+ and a `gcc` executable on `PATH`.  The direct
-GCC command above is the authoritative build check when pytest is unavailable.
-`CC` and `APHELION_TEST_CFLAGS` configure test-driver builds;
-`APHELION_TEST_EXECUTABLE` tests a specified prebuilt binary. Tests include
+The test suite requires Python 3.10+, a `gcc` executable on `PATH`, and OpenSSL
+3.x development files.  The direct GCC command above is the authoritative build
+check when pytest is unavailable.  `CC` and `APHELION_TEST_CFLAGS` configure
+test-driver builds; `APHELION_TEST_EXECUTABLE` tests a specified prebuilt binary;
+`APHELION_OPENSSL_ROOT`, `APHELION_CRYPTO_CFLAGS`, and `APHELION_CRYPTO_LIBS`
+override OpenSSL discovery for the C-driver fixtures.  Tests include
 deterministic source/bytecode fuzzing, injected allocation failures across the C
-pipeline/loader, hostile VM streams, and bytecode read/write/execute round-trips.
+pipeline/loader, hostile VM streams, bytecode read/write/execute round-trips, and
+the ACSL cryptography suite in `tests/test_acsl.py`.
 CI configures strict Windows MinGW and Linux jobs plus Linux sanitizers; remote
 CI success is not implied by the presence of the workflow.
 
@@ -221,6 +233,8 @@ commands and the local PIE startup workaround are in `docs/QUICKSTART.md`.
 - [`docs/COLLECTIONS_DESIGN.md`](docs/COLLECTIONS_DESIGN.md): immutable list types and ownership.
 - [`docs/MODULES_DESIGN.md`](docs/MODULES_DESIGN.md): canonical module loading and linking.
 - [`docs/REPL.md`](docs/REPL.md): interactive behavior, examples, and state/input limits.
+- [`docs/ACSL.md`](docs/ACSL.md): cryptography module reference, envelope format,
+  build/runtime dependencies, and security notes.
 - [`DEVELOPMENT_STATUS.md`](DEVELOPMENT_STATUS.md): verified checks, design
   decisions, and the next implementation boundary.
 

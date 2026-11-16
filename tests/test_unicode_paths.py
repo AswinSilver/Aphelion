@@ -6,8 +6,9 @@ import subprocess
 
 import pytest
 
-from conftest import (ROOT, compiler_command, diagnostic_path, math_libraries,
-                      native_executable_name, test_cflags as extra_cflags)
+from conftest import (ROOT, compiler_command, crypto_include_flags, crypto_libraries,
+                      diagnostic_path, math_libraries, native_executable_name,
+                      test_cflags as extra_cflags)
 from test_aphelion import run_cli
 
 
@@ -130,10 +131,11 @@ int main(void) {
     executable = build / native_executable_name("argument-allocation")
     command = [*compiler_command(), "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
                *extra_cflags(), f"-I{ROOT / 'include'}", f"-I{ROOT / 'src'}", f"-I{support}",
+               *crypto_include_flags(),
                *(str(source) for source in sorted((ROOT / "src").glob("*.c"))
                  if source.name != "main.c"),
                str(support / "fail_alloc.c"), str(driver), *math_libraries(),
-               "-o", str(executable)]
+               *crypto_libraries(), "-o", str(executable)]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     return executable

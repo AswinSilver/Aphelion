@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from conftest import (ROOT, compiler_command, math_libraries, native_executable_name,
+from conftest import (ROOT, compiler_command, crypto_include_flags, crypto_libraries,
+                      math_libraries, native_executable_name,
                       test_cflags as extra_cflags)
 from test_reliability import apb
 from test_aphelion import run_cli, write_program
@@ -17,7 +18,8 @@ def core_executable(tmp_path_factory):
     support = ROOT / "tests" / "support"
     objects = []
     flags = [*compiler_command(), "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
-             *extra_cflags(), f"-I{ROOT / 'include'}", f"-I{support}"]
+             *extra_cflags(), f"-I{ROOT / 'include'}", f"-I{support}",
+             *crypto_include_flags()]
     for source in sorted((ROOT / "src").glob("*.c")):
         if source.name == "main.c":
             continue
@@ -31,7 +33,7 @@ def core_executable(tmp_path_factory):
     executable = build / native_executable_name("core-checks")
     result = subprocess.run([*flags, *objects, str(support / "fail_alloc.c"),
                              str(support / "core_checks.c"), *math_libraries(),
-                             "-o", str(executable)], cwd=ROOT,
+                             *crypto_libraries(), "-o", str(executable)], cwd=ROOT,
                             capture_output=True, text=True, encoding="utf-8", timeout=120)
     assert result.returncode == 0, result.stderr
     return executable

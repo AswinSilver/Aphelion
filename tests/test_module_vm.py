@@ -5,8 +5,9 @@ import subprocess
 
 import pytest
 
-from conftest import (ROOT, compiler_command, diagnostic_path, math_libraries,
-                      native_executable_name, test_cflags as extra_cflags)
+from conftest import (ROOT, compiler_command, crypto_include_flags, crypto_libraries,
+                      diagnostic_path, math_libraries, native_executable_name,
+                      test_cflags as extra_cflags)
 from test_aphelion import run_cli, write_program
 from test_collection_vm import collection_executable, text, whole
 
@@ -152,10 +153,13 @@ int main(int argc, char **argv) {
 }
 ''', encoding="utf-8")
     flags = [*compiler_command(), "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
-             *extra_cflags(), f"-I{ROOT / 'include'}", f"-I{support}"]
+             *extra_cflags(), f"-I{ROOT / 'include'}", f"-I{support}",
+             *crypto_include_flags()]
     objects = []
     for name in ("ast", "token", "lexer", "parser", "compiler", "file",
-                 "value", "bytecode", "vm"):
+                 "value", "bytecode", "vm",
+                 "acsl", "acsl_argon2", "acsl_cipher", "acsl_hash", "acsl_key",
+                 "acsl_random"):
         output = build / (name + ".o")
         result = subprocess.run([*flags, "-include", str(support / "fail_alloc.h"),
                                  "-c", str(ROOT / "src" / (name + ".c")), "-o", str(output)],
@@ -164,7 +168,7 @@ int main(int argc, char **argv) {
         objects.append(str(output))
     executable = build / native_executable_name("source-checks")
     result = subprocess.run([*flags, *objects, str(harness), str(support / "fail_alloc.c"),
-                             *math_libraries(), "-o", str(executable)],
+                             *math_libraries(), *crypto_libraries(), "-o", str(executable)],
                             capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     return executable

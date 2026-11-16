@@ -32,6 +32,7 @@ jobs:
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-python
             mingw-w64-ucrt-x86_64-python-pytest
+            mingw-w64-ucrt-x86_64-openssl
 
       - name: Build and test the native Windows artifact
         shell: msys2 {0}
@@ -132,7 +133,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes \
-            binutils build-essential cmake file
+            binutils build-essential cmake file libssl-dev
 
       - name: Set up Python and pytest
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
@@ -387,6 +388,11 @@ jobs:
           if ($LASTEXITCODE -ne 0 -or $modules -ne "module initialized`r`n42") {
             throw "packaged Windows module example failed: $modules"
           }
+          $crypto = (& $exe run (Join-Path $root.FullName "examples\acsl_demo.agne") 2>&1 | Out-String)
+          if ($LASTEXITCODE -ne 0 -or $crypto -notmatch 'decrypted: secret message' -or
+              $crypto -notmatch 'tamper rejected') {
+            throw "packaged Windows ACSL demo failed: $crypto"
+          }
           Write-Host "Windows package executed with a sanitized PATH and no development toolchain"
 
   linux-clean-install:
@@ -513,4 +519,7 @@ jobs:
           test "$hello" = $'Welcome Aswin\nFinal score: 100'
           modules="$(env -i HOME="$HOME" PATH=/usr/bin:/bin "$root/aphelion" run "$root/examples/modules.agne")"
           test "$modules" = $'module initialized\n42'
+          crypto="$(env -i HOME="$HOME" PATH=/usr/bin:/bin "$root/aphelion" run "$root/examples/acsl_demo.agne")"
+          grep -qx 'decrypted: secret message' <<< "$crypto"
+          grep -qx 'tamper rejected' <<< "$crypto"
           echo "Linux package executed with a sanitized PATH and no development toolchain"

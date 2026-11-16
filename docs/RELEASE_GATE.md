@@ -30,7 +30,7 @@ then install the actual native packages used by CI:
 
 ```sh
 pacman -Syu
-pacman -S --needed file make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-make mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pytest
+pacman -S --needed file make mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-make mingw-w64-ucrt-x86_64-cmake mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pytest mingw-w64-ucrt-x86_64-openssl
 gcc -dumpmachine                 # expect x86_64-w64-mingw32
 make OS=Windows_NT CC=gcc build
 make OS=Windows_NT CC=gcc test
@@ -53,17 +53,27 @@ reuse another platform's objects or CMake cache.
 ### Native is not necessarily standalone
 
 Inspect imports for each actual release toolchain. The locally verified i686
-GCC 16.1.0 binaries import `libmcfgthread-2.dll` as well as Windows CRT/system
-DLLs; they have no MSYS/Cygwin runtime imports. They run with the toolchain on
-PATH, but have not been validated as a standalone distribution on a clean
-Windows machine. The separate UCRT64 job may produce a different import set.
+GCC 16.1.0 binaries import `libmcfgthread-2.dll` and, because of the ACSL
+cryptography module, `libcrypto-3.dll`, as well as Windows CRT/system DLLs;
+they have no MSYS/Cygwin runtime imports. A copy of `aphelion.exe` with only
+those two DLLs beside it, run with PATH restricted to that directory and
+`System32`, printed the version and ran `examples/acsl_demo.agne` correctly, so
+the ACSL runtime dependency resolves from the package directory. The separate
+UCRT64 job may produce a different import set (for example
+`libcrypto-3-x64.dll`).
 
 Before distributing binaries, supply any required redistributable toolchain
 DLLs with their licenses, or use and verify an appropriate self-contained
-link configuration. Then run the portable release smoke on a clean target
+link configuration. `tools/release_package.py windows` resolves every
+non-system DLL from the executable directory, Windows system directories, and
+PATH, then bundles the resolved files beside `aphelion.exe`; the release
+package therefore contains `libcrypto-3-x64.dll` (and its own non-system
+dependencies, if any). Then run the portable release smoke on a clean target
 without the developer toolchain on PATH. The full pytest suite separately
 requires a C compiler for its native test drivers. This session did not change
-link flags to hide dependencies or claim that packaging gate passed.
+link flags to hide dependencies or claim that the full packaging gate passed;
+the ZIP-producing step needs `file` and a release toolchain that this machine
+does not provide.
 
 Windows arguments and source/APB file operations use checked native wide APIs
 with UTF-8 at the C boundary. Unicode/spaced filenames and module roots are
@@ -77,7 +87,7 @@ CMake, Python >=3.10/pytest, and the artifact inspection tools. For example:
 
 ```sh
 sudo apt-get update
-sudo apt-get install gcc libc6-dev make cmake python3 python3-pytest binutils file
+sudo apt-get install gcc libc6-dev libssl-dev make cmake python3 python3-pytest binutils file
 make CC=gcc PYTHON=python3 build
 make CC=gcc PYTHON=python3 test
 python3 tools/release_smoke.py --executable ./aphelion

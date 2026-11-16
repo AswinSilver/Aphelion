@@ -49,6 +49,7 @@ disassembly.
 | `LIST count, tag` | Consume homogeneous primitive values and push an owned immutable list. |
 | `INDEX` | Consume list and whole index, check bounds, push a retained element. |
 | `SOURCE n` | Select a validated filename text constant for this call frame's diagnostics. |
+| `NATIVE_CALL index, argc` | Consume `argc` stack values, invoke built-in native function `index`, push its result. |
 | `OUTPUT` | Reserved internal opcode; not a source builtin. |
 | `BREAK`, `SKIP` | Reserved validation sentinels; the compiler patches source loop control to jumps. |
 | `NOP` | No operation. |
@@ -106,6 +107,13 @@ frame borrows its filename from bytecode-owned storage; calls default to the
 entry source and returns restore the caller's marker. Linked modules emit these
 markers; single-file programs keep their existing instruction stream. `.apb`
 execution does not perform source/module I/O.
+`NATIVE_CALL=46` carries a native function index in operand and an argument
+count in operand2. The index must be nonnegative and resolve in the compiled-in
+native registry; the argument count must be between zero and
+`APHELION_NATIVE_MAX_ARITY` (8). The VM revalidates both the count and every
+argument type before invoking the native function, so a hand-crafted `.apb`
+cannot bypass the source-level checks. Native calls are deterministic registry
+lookups: they never load code or libraries at runtime.
 
 ## Runtime ownership
 

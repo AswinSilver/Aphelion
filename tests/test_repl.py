@@ -7,7 +7,8 @@ import time
 
 import pytest
 
-from conftest import (ROOT, compiler_command, math_libraries, native_executable_name,
+from conftest import (ROOT, compiler_command, crypto_include_flags, crypto_libraries,
+                      math_libraries, native_executable_name,
                       reject_sanitizer_output, test_cflags as extra_cflags)
 
 
@@ -351,7 +352,8 @@ int main(int argc, char **argv) {
 }
 ''', encoding="utf-8")
     flags = [*compiler_command(), "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
-             *extra_cflags(), f"-I{ROOT / 'include'}", f"-I{ROOT / 'src'}", f"-I{support}"]
+             *extra_cflags(), f"-I{ROOT / 'include'}", f"-I{ROOT / 'src'}", f"-I{support}",
+             *crypto_include_flags()]
     objects = []
     for source in sorted((ROOT / "src").glob("*.c")):
         if source.name == "main.c":
@@ -364,7 +366,7 @@ int main(int argc, char **argv) {
         objects.append(str(output))
     executable = build / native_executable_name("repl-allocation")
     result = subprocess.run([*flags, *objects, str(support / "fail_alloc.c"), str(driver),
-                             *math_libraries(), "-o", str(executable)],
+                             *math_libraries(), *crypto_libraries(), "-o", str(executable)],
                             cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     return executable

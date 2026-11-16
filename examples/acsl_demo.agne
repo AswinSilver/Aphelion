@@ -1,0 +1,28 @@
+// ACSL demo: hashing, authenticated encryption, integrity checks, and
+// secure randomness.  Run it with: aphelion run examples/acsl_demo.agne
+summon acsl
+
+reveal("sha256: " + acsl.sha256_hex("aphelion"))
+
+forge key = acsl.generate_key(32)
+forge sealed = acsl.encrypt("secret message", key)
+reveal("decrypted: " + acsl.decrypt(sealed, key))
+
+forge tag = acsl.hmac_sha256(key, "release manifest")
+when acsl.hmac_sha256_verify(key, "release manifest", tag) {
+    reveal("authenticated: bright")
+} otherwise {
+    reveal("authenticated: dim")
+}
+when acsl.hmac_sha256_verify(key, "release manifest!", tag) {
+    reveal("tamper accepted")
+} otherwise {
+    reveal("tamper rejected")
+}
+
+forge salt = acsl.random_bytes(16)
+forge derived = acsl.derive_key("correct horse battery staple", salt)
+reveal("derived key: " + acsl.key_to_hex(derived))
+
+reveal("session token: " + acsl.random_token(32))
+reveal(acsl.random_int(1, 6))
