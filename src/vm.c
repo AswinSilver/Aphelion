@@ -1,5 +1,7 @@
 #include "aphelion/vm.h"
 
+#include "aphelion/native.h"
+
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -1091,6 +1093,46 @@ bool aphelion_vm_run(AphelionVM *vm, const AphelionBytecode *bytecode) {
         case APHELION_OP_CALL:
             (void)vm_call(vm, instruction.operand, &instruction);
             break;
+        case APHELION_OP_NATIVE_CALL: {
+            AphelionValue arguments[APHELION_NATIVE_MAX_ARITY];
+            char native_error[256];
+            size_t argc;
+            size_t start;
+            size_t i;
+            if (instruction.operand < 0 || instruction.operand2 < 0 ||
+                (size_t)instruction.operand2 > APHELION_NATIVE_MAX_ARITY) {
+                vm_set_error(vm, &instruction, "native call metadata is invalid");
+                break;
+            }
+            argc = (size_t)instruction.operand2;
+            if (vm_operand_count(vm) < argc) {
+                vm_set_error(vm, &instruction,
+                             "operand stack underflow in native call");
+                break;
+            }
+            start = vm->stack_count - argc;
+            for (i = 0u; i < argc; ++i) {
+                arguments[i] = aphelion_value_move(&vm->stack[start + i]);
+            }
+            vm->stack_count = start;
+            native_error[0] = '\0';
+            if (!aphelion_native_call((unsigned)instruction.operand,
+                                      arguments, argc, &result,
+                                      native_error, sizeof(native_error))) {
+                vm_set_error(vm, &instruction, "%s",
+                             native_error[0] != '\0'
+                                 ? native_error : "native call failed");
+                for (i = 0u; i < argc; ++i) {
+                    aphelion_value_destroy(&arguments[i]);
+                }
+                break;
+            }
+            for (i = 0u; i < argc; ++i) {
+                aphelion_value_destroy(&arguments[i]);
+            }
+            (void)vm_push_move(vm, &result, &instruction);
+            break;
+        }
         case APHELION_OP_RETURN:
             (void)vm_return(vm, &instruction);
             break;

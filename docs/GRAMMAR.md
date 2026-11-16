@@ -9,7 +9,8 @@ separators.  Whitespace and comments are removed before parsing.
 ```ebnf
 program          ::= separator* (summon-statement separator+)* top-level* EOF ;
 top-level        ::= orbit-declaration | declaration | statement ;
-summon-statement ::= "summon" TEXT ;
+summon-statement ::= "summon" (TEXT | native-module) ;
+native-module    ::= "acsl" ;  (* compiled-in native modules; other bare names are errors *)
 
 statement        ::= declaration
                    | yield-statement
@@ -82,7 +83,8 @@ term             ::= factor {("+" | "-") factor} ;
 factor           ::= unary {("*" | "/" | "%") unary} ;
 unary            ::= ("!" | "not" | "+" | "-") unary | postfix ;
 postfix          ::= primary {"(" [expression ("," expression)*] ")"
-                             | "[" expression "]"} ;
+                             | "[" expression "]"
+                             | "." IDENTIFIER} ;
 primary          ::= WHOLE | DECIMAL | TEXT | GLYPH | "bright" | "dim"
                    | "hollow" | "receive" | "reveal" | IDENTIFIER
                    | "(" expression ")" | list-literal ;

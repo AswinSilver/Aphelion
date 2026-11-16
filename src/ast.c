@@ -237,6 +237,10 @@ static void free_expr(AstExpr *expression) {
         free_expr(expression->as.index.target);
         free_expr(expression->as.index.index);
         break;
+    case AST_EXPR_MEMBER:
+        free_expr(expression->as.member.target);
+        free(expression->as.member.name);
+        break;
     }
     free(expression);
 }

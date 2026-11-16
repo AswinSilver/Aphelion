@@ -1,4 +1,5 @@
 #include "aphelion/bytecode.h"
+#include "aphelion/native.h"
 #include "aphelion/file.h"
 
 #include <inttypes.h>
@@ -241,6 +242,7 @@ const char *aphelion_opcode_name(AphelionOpcode opcode) {
     case APHELION_OP_LIST: return "LIST";
     case APHELION_OP_INDEX: return "INDEX";
     case APHELION_OP_SOURCE: return "SOURCE";
+    case APHELION_OP_NATIVE_CALL: return "NATIVE_CALL";
     case APHELION_OP_OUTPUT: return "OUTPUT";
     case APHELION_OP_BREAK: return "BREAK";
     case APHELION_OP_SKIP: return "SKIP";
@@ -598,7 +600,7 @@ static bool validate_instruction(const AphelionBytecode *bytecode,
         return false;
     }
     opcode = (AphelionOpcode)instruction->opcode;
-    if (opcode > APHELION_OP_SOURCE ||
+    if (opcode > APHELION_OP_NATIVE_CALL ||
         opcode == APHELION_OP_OUTPUT || opcode == APHELION_OP_BREAK ||
         opcode == APHELION_OP_SKIP) {
         set_error(error, error_size, "unsupported opcode %u in function '%s'",
@@ -668,6 +670,17 @@ static bool validate_instruction(const AphelionBytecode *bytecode,
             return false;
         }
         break;
+    case APHELION_OP_NATIVE_CALL:
+        if (instruction->operand < 0) {
+            set_error(error, error_size, "native function index is negative");
+            return false;
+        }
+        if (instruction->operand2 < 0 ||
+            instruction->operand2 > (int32_t)APHELION_NATIVE_MAX_ARITY) {
+            set_error(error, error_size, "native argument count is out of range");
+            return false;
+        }
+        break;
     case APHELION_OP_ASSERT:
         if (instruction->operand != 1 && instruction->operand != 2) {
             set_error(error, error_size, "ASSERT argument count must be 1 or 2");
@@ -723,7 +736,8 @@ static bool validate_instruction(const AphelionBytecode *bytecode,
         set_error(error, error_size, "unknown opcode %u", instruction->opcode);
         return false;
     }
-    if (opcode != APHELION_OP_LIST && instruction->operand2 != 0) {
+    if (opcode != APHELION_OP_LIST && opcode != APHELION_OP_NATIVE_CALL &&
+        instruction->operand2 != 0) {
         set_error(error, error_size, "unexpected second operand for %s",
                   aphelion_opcode_name(opcode));
         return false;

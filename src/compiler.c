@@ -701,6 +701,22 @@ static bool compile_call(CompilerState *state, const AstExpr *expression) {
     const AstExpr *callee = expression->as.call.callee;
     size_t i;
     while (callee != NULL && callee->kind == AST_EXPR_GROUP) callee = callee->as.group.inner;
+    if (callee != NULL && callee->kind == AST_EXPR_MEMBER &&
+        callee->as.member.native_index >= 0) {
+        int index = callee->as.member.native_index;
+        for (i = 0u; i < expression->as.call.argument_count; ++i) {
+            if (!compile_expr(state, expression->as.call.arguments[i])) {
+                return false;
+            }
+        }
+        if (expression->as.call.argument_count > INT32_MAX) {
+            compile_error_expr(state, expression, "too many native call arguments");
+            return false;
+        }
+        return emit_checked(state, APHELION_OP_NATIVE_CALL, index,
+                            (int32_t)expression->as.call.argument_count,
+                            expr_location(state, expression));
+    }
     if (callee != NULL && callee->kind == AST_EXPR_NAME &&
         callee->as.name.name != NULL &&
         strcmp(callee->as.name.name, "reveal") == 0) {

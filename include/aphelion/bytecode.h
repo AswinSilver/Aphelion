@@ -67,7 +67,8 @@ typedef enum AphelionOpcode {
     APHELION_OP_ASSERT,
     APHELION_OP_LIST,  /* operand: count; operand2: primitive element type */
     APHELION_OP_INDEX,
-    APHELION_OP_SOURCE /* operand: nonempty, NUL-free text constant; operand2: 0 */
+    APHELION_OP_SOURCE, /* operand: nonempty, NUL-free text constant; operand2: 0 */
+    APHELION_OP_NATIVE_CALL /* operand: native function index; operand2: argc */
 } AphelionOpcode;
 
 typedef struct AphelionInstruction {

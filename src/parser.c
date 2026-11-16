@@ -1,6 +1,7 @@
 #include "aphelion/parser.h"
 
 #include "aphelion/lexer.h"
+#include "aphelion/native.h"
 #include "aphelion/token.h"
 
 #include <stdarg.h>
@@ -605,9 +606,38 @@ static AstExpr *parse_primary(Parser *parser) {
 static AstExpr *parse_postfix(Parser *parser) {
     AstExpr *expression = parse_primary(parser);
     while (expression != NULL &&
-           (at(parser, TOKEN_LEFT_PAREN) || at(parser, TOKEN_LEFT_BRACKET))) {
+           (at(parser, TOKEN_LEFT_PAREN) || at(parser, TOKEN_LEFT_BRACKET) ||
+            at(parser, TOKEN_DOT))) {
         SourceSpan start = expression->span;
         AstExpr *call;
+        if (at(parser, TOKEN_DOT)) {
+            AstExpr *member;
+            advance_token(parser);
+            if (!at(parser, TOKEN_IDENTIFIER)) {
+                parser_report_current(parser,
+                                      "expected a name after '.'");
+                return expression;
+            }
+            member = ast_expr_new(AST_EXPR_MEMBER, start);
+            if (member == NULL) {
+                parser_report(parser, start.start,
+                              "out of memory while creating member access");
+                return expression;
+            }
+            member->as.member.target = expression;
+            member->as.member.name = copy_token_text(&parser->current);
+            member->as.member.native_index = -1;
+            if (member->as.member.name == NULL) {
+                parser_report(parser, start.start,
+                              "out of memory copying member name");
+                ast_expr_free(member);
+                return expression;
+            }
+            member->span = span_join(start, token_span(parser, &parser->current));
+            advance_token(parser);
+            expression = check_tree_depth(parser, member);
+            continue;
+        }
         if (at(parser, TOKEN_LEFT_BRACKET)) {
             AstExpr *index = ast_expr_new(AST_EXPR_INDEX, start);
             if (index == NULL) {
@@ -1292,8 +1322,12 @@ AstProgram *parser_parse(const char *filename, const char *source,
                 parser_report_current(&parser, "summon must precede declarations and other top-level work");
             }
             advance_token(&parser);
-            if (!at(&parser, TOKEN_STRING_LITERAL)) {
-                parser_report_current(&parser, "expected a text module path after summon");
+            if (!at(&parser, TOKEN_STRING_LITERAL) &&
+                !(at(&parser, TOKEN_IDENTIFIER) &&
+                  aphelion_native_module_flag_n(parser.current.lexeme,
+                                                parser.current.lexeme_length) != 0u)) {
+                parser_report_current(&parser,
+                    "expected a module path after summon");
                 synchronize_top_level(&parser);
                 continue;
             }
@@ -1303,8 +1337,15 @@ AstProgram *parser_parse(const char *filename, const char *source,
                 parser_report(&parser, start.start, "out of memory creating summon");
                 break;
             }
-            statement->as.summon.path = copy_string_token(&parser.current,
-                &statement->as.summon.path_length);
+            if (at(&parser, TOKEN_STRING_LITERAL)) {
+                statement->as.summon.path = copy_string_token(&parser.current,
+                    &statement->as.summon.path_length);
+            } else {
+                statement->as.summon.path = copy_token_text(&parser.current);
+                statement->as.summon.path_length =
+                    statement->as.summon.path != NULL
+                      ? strlen(statement->as.summon.path) : 0u;
+            }
             if (statement->as.summon.path == NULL) {
                 parser_report(&parser, start.start, "out of memory copying module path");
             }

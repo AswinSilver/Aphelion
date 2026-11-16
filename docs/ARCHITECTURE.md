@@ -17,6 +17,7 @@ Aphelion is split into independent C modules.  Public interfaces live under
 | `value.h` / `value.c` | Tagged runtime values, text/list reference counting, equality and output formatting. |
 | `compiler.h` / `compiler.c` | Validated AST to stack bytecode, locals, globals, jumps, calls. |
 | `vm.h` / `vm.c` | Bounded operand stack, call frames, instruction dispatch, runtime errors. |
+| `native.h` / `acsl*.c` | Compiled-in native module registry and the ACSL cryptography implementation. |
 | `main.c` | Native argv normalization, file loading, CLI/debug routing, diagnostics, and bounded REPL. |
 
 ## Front-end flow
@@ -44,6 +45,24 @@ Conditional jumps peek at their condition.  The compiler emits explicit pops
 on each branch.  `and` and `or` short-circuit by jumping around the RHS.  Loop
 `escape` and `skip` are compiled into patched jumps, so the VM does not need to
 interpret source-level control keywords.
+
+## Native module flow
+
+`module.c` recognises `summon acsl` by name, records the module bit on the
+`AstProgram`, and never performs a filesystem lookup for it.  The semantic
+checker resolves `acsl.name(...)` through the compiled-in registry in
+`native.h`, validates arity and argument types against the function descriptor,
+and stores the registry index on the member expression.  The compiler emits
+`NATIVE_CALL index, argc` after pushing the arguments.
+
+The VM revalidates the index, the argument count, and every runtime argument
+type before calling the registry entry.  Native functions never take ownership
+of their arguments; on success they return one owned value, and on failure they
+return `false` with a short diagnostic that is copied into the VM error.  All
+temporary buffers are freed (and secret buffers cleansed) inside the native
+implementation, so allocation failure leaves no partial state on the stack.
+ACSL links OpenSSL's `libcrypto` and the vendored Argon2 source; no native code
+is loaded at runtime.
 
 ## Memory rules
 

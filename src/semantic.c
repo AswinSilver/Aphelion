@@ -1,5 +1,7 @@
 #include "aphelion/semantic.h"
 
+#include "aphelion/native.h"
+
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,6 +42,7 @@ typedef struct SemanticContext {
     Diagnostics *diagnostics;
     bool ok;
     Scope *global;
+    unsigned native_modules;
 } SemanticContext;
 
 static void semantic_error_span(SemanticContext *context, SourceSpan span,
@@ -319,6 +322,92 @@ static TypeKind check_name(SemanticContext *context, Scope *scope,
     return symbol->type;
 }
 
+static TypeKind native_parameter_type(AphelionNativeParam parameter) {
+    switch (parameter) {
+    case APHELION_NATIVE_PARAM_TEXT: return TYPE_TEXT;
+    case APHELION_NATIVE_PARAM_WHOLE: return TYPE_WHOLE;
+    case APHELION_NATIVE_PARAM_SIGNAL: return TYPE_SIGNAL;
+    default: return TYPE_UNKNOWN;
+    }
+}
+
+static TypeKind check_native_call(SemanticContext *context, Scope *scope,
+                                  AstExpr *expression, AstExpr *callee) {
+    AstExpr *target = callee->as.member.target;
+    const AphelionNativeFunction *function;
+    unsigned module_flag;
+    int index;
+    size_t i;
+
+    while (target != NULL && target->kind == AST_EXPR_GROUP) {
+        target = target->as.group.inner;
+    }
+    callee->as.member.native_index = -1;
+    if (target == NULL || target->kind != AST_EXPR_NAME ||
+        target->as.name.name == NULL) {
+        semantic_error_span(context, callee->span,
+                            "member access is only supported for native modules");
+        return TYPE_ERROR;
+    }
+    module_flag = aphelion_native_module_flag(target->as.name.name);
+    if (module_flag == 0u) {
+        semantic_error_span(context, target->span,
+                            "'%s' is not a native module",
+                            target->as.name.name);
+        return TYPE_ERROR;
+    }
+    if ((context->native_modules & module_flag) == 0u) {
+        semantic_error_span(context, target->span,
+                            "native module '%s' is not imported; add 'summon %s'",
+                            target->as.name.name, target->as.name.name);
+        return TYPE_ERROR;
+    }
+    index = aphelion_native_find(target->as.name.name,
+                                 callee->as.member.name);
+    if (index < 0) {
+        semantic_error_span(context, callee->span,
+                            "native module '%s' has no function '%s'",
+                            target->as.name.name,
+                            callee->as.member.name != NULL
+                                ? callee->as.member.name : "<unnamed>");
+        return TYPE_ERROR;
+    }
+    function = aphelion_native_function_at((unsigned)index);
+    if (function == NULL) {
+        semantic_error_span(context, callee->span,
+                            "native function index is invalid");
+        return TYPE_ERROR;
+    }
+    callee->as.member.native_index = index;
+    if (expression->as.call.argument_count != function->arity) {
+        semantic_error_span(context, expression->span,
+                            "%s expects %u argument%s, got %lu",
+                            function->signature, function->arity,
+                            function->arity == 1u ? "" : "s",
+                            (unsigned long)expression->as.call.argument_count);
+    }
+    for (i = 0u; i < expression->as.call.argument_count; ++i) {
+        TypeKind actual = check_expression(context, scope,
+                                           expression->as.call.arguments[i]);
+        if (i < function->arity) {
+            TypeKind expected = native_parameter_type(function->parameters[i]);
+            if (expected != TYPE_UNKNOWN && actual != TYPE_ERROR &&
+                actual != expected) {
+                semantic_error_span(context,
+                                    expression->as.call.arguments[i]->span,
+                                    "argument %lu to '%s' has type %s; expected %s",
+                                    (unsigned long)(i + 1u),
+                                    function->signature,
+                                    type_kind_name(actual),
+                                    type_kind_name(expected));
+            }
+        }
+    }
+    expression->resolved_symbol = NULL;
+    expression->inferred_type = function->return_type;
+    return function->return_type;
+}
+
 static TypeKind check_call(SemanticContext *context, Scope *scope,
                            AstExpr *expression) {
     AstExpr *callee = unwrap_group(expression->as.call.callee);
@@ -328,6 +417,9 @@ static TypeKind check_call(SemanticContext *context, Scope *scope,
     AstParameter *parameters = NULL;
     TypeKind result = TYPE_ERROR;
 
+    if (callee != NULL && callee->kind == AST_EXPR_MEMBER) {
+        return check_native_call(context, scope, expression, callee);
+    }
     if (callee != NULL && callee->kind == AST_EXPR_NAME) {
         if (strcmp(callee->as.name.name, "reveal") == 0) {
             if (expression->as.call.argument_count != 1u) {
@@ -573,6 +665,11 @@ static TypeKind check_expression(SemanticContext *context, Scope *scope,
         break;
     case AST_EXPR_CALL:
         return check_call(context, scope, expression);
+    case AST_EXPR_MEMBER:
+        semantic_error_span(context, expression->span,
+                            "native function access must be called");
+        result = TYPE_ERROR;
+        break;
     case AST_EXPR_UNARY:
         left = check_expression(context, scope, expression->as.unary.operand);
         if (expression->as.unary.op == AST_UNARY_NOT) {
@@ -1006,6 +1103,7 @@ bool semantic_check(AstProgram *program, Diagnostics *diagnostics) {
     memset(&context, 0, sizeof(context));
     context.diagnostics = diagnostics;
     context.ok = !program->had_parse_error;
+    context.native_modules = program->native_modules;
     memset(&global, 0, sizeof(global));
     context.global = &global;
     predeclare_program(&context, program, &global);

@@ -5,7 +5,8 @@ import subprocess
 
 import pytest
 
-from conftest import (ROOT, compiler_command, math_libraries, native_executable_name,
+from conftest import (ROOT, compiler_command, crypto_include_flags, crypto_libraries,
+                      math_libraries, native_executable_name,
                       test_cflags as extra_cflags)
 from test_core_checks import core_executable  # shared leak-tracking C driver fixture
 from test_reliability import apb
@@ -244,9 +245,12 @@ int main(int argc, char **argv) {
 }
 ''', encoding="utf-8")
     flags = [*compiler_command(), "-std=c11", "-Wall", "-Wextra", "-Wpedantic", "-Werror",
-             *extra_cflags(), f"-I{ROOT / 'include'}", f"-I{support}"]
+             *extra_cflags(), f"-I{ROOT / 'include'}", f"-I{support}",
+             *crypto_include_flags()]
     objects = []
-    for name in ("file", "bytecode", "value", "vm"):
+    for name in ("file", "bytecode", "value", "vm",
+                 "acsl", "acsl_argon2", "acsl_cipher", "acsl_hash", "acsl_key",
+                 "acsl_random"):
         output = build / (name + ".o")
         result = subprocess.run([*flags, "-include", str(support / "fail_alloc.h"),
                                  "-c", str(ROOT / "src" / (name + ".c")), "-o", str(output)],
@@ -255,7 +259,7 @@ int main(int argc, char **argv) {
         objects.append(str(output))
     executable = build / native_executable_name("builtin-allocation")
     result = subprocess.run([*flags, *objects, str(support / "fail_alloc.c"), str(source),
-                             *math_libraries(), "-o", str(executable)],
+                             *math_libraries(), *crypto_libraries(), "-o", str(executable)],
                             cwd=ROOT, capture_output=True, text=True, timeout=120)
     assert result.returncode == 0, result.stderr
     return executable

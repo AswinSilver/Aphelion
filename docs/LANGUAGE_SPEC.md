@@ -38,7 +38,7 @@ Unterminated comments, strings, and glyphs are lexical errors.
 | `escape` | Exit the nearest `cycle`. |
 | `skip` | Continue the nearest `cycle`. |
 | `traverse` | Visit a typed immutable list with a loop-local element binding. |
-| `summon` | Statically load a root-relative source module. |
+| `summon` | Statically load a root-relative source module or a compiled-in native module. |
 | `reveal` | Built-in that writes one value and a newline. |
 | `receive` | Built-in that reads one input line as text. |
 | `to_text` | Built-in that converts a runtime value to text. |
@@ -306,6 +306,19 @@ Limits including the entry are 256 files, 64 active modules, and 64 MiB aggregat
 source. Only regular/seekable files load. Compiled `.apb` files are self-contained
 and preserve per-frame source filenames without loading modules at execution.
 See `MODULES_DESIGN.md` and `../examples/modules.agne`.
+
+## Native modules
+
+`summon acsl` (or `summon "acsl"`) imports the compiled-in Aphelion
+Cryptography Security Library. Native modules are recognised by name and never
+touch the filesystem, so a project may contain no `.agne` module at all.
+`acsl.sha256_hex("abc")` is a member call: the expression after `.` must name a
+function in that module's registry, the call is type-checked against its
+signature, and the compiler emits a `NATIVE_CALL` instruction. A member access
+that is not called, an unknown module name, an unknown function, or a call made
+without the matching `summon` is a semantic error. Native functions are
+statically registered; no dynamic library loading occurs. See
+[`ACSL.md`](ACSL.md) for the complete function reference.
 
 ## Implemented limitations
 
