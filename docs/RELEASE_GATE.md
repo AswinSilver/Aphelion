@@ -58,22 +58,27 @@ cryptography module, `libcrypto-3.dll`, as well as Windows CRT/system DLLs;
 they have no MSYS/Cygwin runtime imports. A copy of `aphelion.exe` with only
 those two DLLs beside it, run with PATH restricted to that directory and
 `System32`, printed the version and ran `examples/acsl_demo.agne` correctly, so
-the ACSL runtime dependency resolves from the package directory. The separate
-UCRT64 job may produce a different import set (for example
-`libcrypto-3-x64.dll`).
+the ACSL runtime dependency resolves from the package directory.
+
+The CI UCRT64 x64 build has a different import set: it bundles
+`libcrypto-4-x64.dll` from MSYS2's OpenSSL 4.x package, and its
+`manifest.json` records that DLL as the only non-system dependency. The
+bundled DLL name therefore follows the OpenSSL major version
+(`libcrypto-3-x64.dll` with OpenSSL 3.x, `libcrypto-4-x64.dll` with OpenSSL
+4.x); do not hard-code one spelling.
 
 Before distributing binaries, supply any required redistributable toolchain
 DLLs with their licenses, or use and verify an appropriate self-contained
 link configuration. `tools/release_package.py windows` resolves every
 non-system DLL from the executable directory, Windows system directories, and
 PATH, then bundles the resolved files beside `aphelion.exe`; the release
-package therefore contains `libcrypto-3-x64.dll` (and its own non-system
-dependencies, if any). Then run the portable release smoke on a clean target
-without the developer toolchain on PATH. The full pytest suite separately
-requires a C compiler for its native test drivers. This session did not change
-link flags to hide dependencies or claim that the full packaging gate passed;
-the ZIP-producing step needs `file` and a release toolchain that this machine
-does not provide.
+package therefore contains the OpenSSL runtime named above (and its own
+non-system dependencies, if any). Then run the portable release smoke on a
+clean target without the developer toolchain on PATH. The full pytest suite
+separately requires a C compiler for its native test drivers. The
+`workflow_dispatch` "Stage 1 release packages" run does the whole sequence on
+GitHub: build, smoke, package, verify the archive, and execute the extracted
+package with a sanitized PATH.
 
 Windows arguments and source/APB file operations use checked native wide APIs
 with UTF-8 at the C boundary. Unicode/spaced filenames and module roots are

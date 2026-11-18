@@ -12,7 +12,7 @@ validated by the current release checks. Install OpenSSL development files from
 the same MSYS2 prefix (`mingw-w64-ucrt-x86_64-openssl`); the ACSL cryptography
 module links `libcrypto`.
 
-**Debian/Ubuntu:** install `gcc`, `libc6-dev`, `libssl-dev` (OpenSSL 3.x), `make`,
+**Debian/Ubuntu:** install `gcc`, `libc6-dev`, `libssl-dev` (OpenSSL 3.0 or newer), `make`,
 and optionally `cmake`. Use Python 3.10+ with pytest for development checks (a
 virtual environment is recommended). Argon2 is vendored in `third_party/argon2`,
 so no Argon2 package is required.

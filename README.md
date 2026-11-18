@@ -70,8 +70,8 @@ They are listed as future work rather than being accepted as fake syntax.
 
 ### GCC / MinGW
 
-Builds need a C11 compiler, its platform SDK/C runtime, and OpenSSL 3.x
-development files (headers plus `libcrypto`); Argon2 is vendored under
+Builds need a C11 compiler, its platform SDK/C runtime, and OpenSSL 3.0 or
+newer development files (headers plus `libcrypto`); Argon2 is vendored under
 `third_party/argon2`.  From the project root in Git Bash/MSYS2 or a POSIX shell:
 
 ```sh
@@ -89,13 +89,14 @@ On Linux the same command can produce `aphelion` instead of `aphelion.exe`.
 Native Windows builds use guarded Windows APIs for UTF-8
 filenames. Before distributing a Windows binary, inspect and supply any
 toolchain runtime DLLs as described in `docs/RELEASE_GATE.md`; native does not
-mean standalone.  A Windows package must also ship `libcrypto-3-x64.dll`; on
-Linux the system `libcrypto.so.3` is used.  See `docs/ACSL.md` for the crypto
-runtime requirements.
+mean standalone.  A Windows package must also ship the matching
+`libcrypto-<major>-x64.dll` (MSYS2 currently provides `libcrypto-4-x64.dll`); on
+Linux the distribution's `libcrypto.so.3` is used.  See `docs/ACSL.md` for
+the crypto runtime requirements.
 
 The repository also contains a GNU-make `Makefile` and a
-`CMakeLists.txt` for environments with CMake.  Both expect OpenSSL 3.x in the
-toolchain's default search path (override with `OPENSSL_CFLAGS`/`OPENSSL_LIBS`
+`CMakeLists.txt` for environments with CMake.  Both expect OpenSSL 3.0 or newer
+in the toolchain's default search path (override with `OPENSSL_CFLAGS`/`OPENSSL_LIBS`
 for Make or `OpenSSL_ROOT_DIR` for CMake) and compile the vendored Argon2
 source.
 

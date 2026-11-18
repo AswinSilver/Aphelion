@@ -40,8 +40,9 @@ Each archive has one top-level directory named after the archive and contains:
 - the `.agne` examples, including `examples/lib/math.agne`, used by the module
   example;
 - any non-system Windows runtime files discovered for that native executable,
-  beside the executable.  This includes `libcrypto-3-x64.dll`, which the ACSL
-  cryptography module requires;
+  beside the executable.  This includes the OpenSSL runtime that the ACSL
+  cryptography module requires (`libcrypto-4-x64.dll` with the current MSYS2
+  OpenSSL 4.x, `libcrypto-3-x64.dll` with OpenSSL 3.x);
 - `manifest.json`, recording the version, platform, native identity,
   dependency inspector, executable hash, dependency information, and every
   payload file hash; and
@@ -154,8 +155,8 @@ needed; the packager rejects a future Linux binary with a private
 shared-library dependency until a verified RPATH/launcher is implemented. A
 package is not a guarantee that an unsupported operating system, CPU
 architecture, or older Linux C library will run it.  The Windows package ships
-`libcrypto-3-x64.dll` beside `aphelion.exe`; end users never need OpenSSL
-development headers or a compiler.
+the matching `libcrypto-<major>-x64.dll` beside `aphelion.exe`; end users never
+need OpenSSL development headers or a compiler.
 
 The archive contains the release examples and modules, not a general-purpose
 module installation directory. When using a custom source tree, keep every

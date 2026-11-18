@@ -25,7 +25,7 @@ end users beyond the Aphelion package itself.
 ### Build requirements
 
 - A C11 compiler and the platform C runtime.
-- OpenSSL 3.x development headers and `libcrypto`.
+- OpenSSL 3.0 or newer development headers and `libcrypto`.
 - No separate Argon2 package: `third_party/argon2` contains the pinned upstream
   source (tag `20190702`) and is compiled into the binary.
 
@@ -59,10 +59,12 @@ and honours `OpenSSL_ROOT_DIR`.
 `libcrypto` is linked dynamically.  End users do not need a compiler or
 development headers, but the OpenSSL runtime library must be available:
 
-- **Linux x64**: `libcrypto.so.3`, normally installed by the distribution
-  (`libssl3`/`openssl-libs`).
-- **Windows x64**: `libcrypto-3-x64.dll`, shipped next to `aphelion.exe` in the
-  release package.  `docs/RELEASE.md` describes the packaged layout.
+- **Linux x64**: the distribution's `libcrypto.so.3` (OpenSSL 3.x) or the
+  equivalent OpenSSL 4 runtime, normally installed by `libssl3`/`openssl-libs`.
+- **Windows x64**: the matching `libcrypto-<major>-x64.dll`
+  (`libcrypto-3-x64.dll` with OpenSSL 3.x, `libcrypto-4-x64.dll` with OpenSSL
+  4.x), shipped next to `aphelion.exe` in the release package.
+  `docs/RELEASE.md` describes the packaged layout.
 
 If the library is missing, the operating system reports a load failure before
 Aphelion starts; the program itself cannot report it.
